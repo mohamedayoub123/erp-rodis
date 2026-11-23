@@ -1,19 +1,22 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { updateCommandeNoteAction } from "./actions";
+import { updateCommandeNoteAction, updateCommandeRemarqueAction } from "./actions";
 
 // Ecriture libre, sauvegarde automatique - demande explicite : pas de
 // bouton "Enregistrer", juste ecrire puis quitter la case (ou Entree) pour
-// que ca sauvegarde tout seul.
+// que ca sauvegarde tout seul. Sert pour la ligne "Note" (en haut) et la
+// ligne "Remarque" (avant la ligne "Date commande") : seul le champ change.
 export function CommandeNoteCell({
   commandeId,
   initialValue,
   canEdit,
+  champ = "note",
 }: {
   commandeId: number;
   initialValue: string;
   canEdit: boolean;
+  champ?: "note" | "remarque";
 }) {
   const [prevInitialValue, setPrevInitialValue] = useState(initialValue);
   const [value, setValue] = useState(initialValue);
@@ -40,7 +43,7 @@ export function CommandeNoteCell({
 
     startTransition(async () => {
       try {
-        await updateCommandeNoteAction(formData);
+        await (champ === "remarque" ? updateCommandeRemarqueAction(formData) : updateCommandeNoteAction(formData));
         setSavedValue(value);
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'enregistrement.");

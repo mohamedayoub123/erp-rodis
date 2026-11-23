@@ -11,6 +11,7 @@ import {
   type CommandColumn,
 } from "./family-data";
 import type { ExportCommandColumn, ExportDataRow } from "./tableau-export-button";
+import { remarqueTableauDisponible } from "@/lib/remarque-tableau-commande";
 
 // Calcul de la vue "Article manquant" du Tableau de commande (toutes les commandes non livrees, tous les
 // articles de chaque famille, avec stock et quantites par commande). Sorti de page.tsx pour etre reutilise
@@ -82,6 +83,7 @@ export async function buildManquantSheet(): Promise<{
     statut: getStatusLabel(column.statut),
     statutCode: String(column.statut || ""),
     note: column.note,
+    remarque: column.remarque,
   }));
 
   const rows: ExportDataRow[] = [];
@@ -142,13 +144,15 @@ export async function loadManquantData(families: string[], selectedFamille: stri
   // together with "Qt en cours" (independent of one another, previously
   // awaited sequentially before this block) - saves one full network
   // round trip on this view.
+  // La remarque n'est lue que si sa colonne existe (SQL de la remarque execute) : une colonne absente ferait echouer toute la lecture
+  const avecRemarque = await remarqueTableauDisponible();
   const [missingArticlesRaw, { data: missingCommandesRaw }, qtEnCoursConditionnementByArticle] =
     await Promise.all([
       fetchAllArticlesForMissingReport(),
       supabaseServer
         .from("commandes")
         .select(
-          "id, client, statut, mode_chargement, type_tc, numero_proforma, note_tableau_commande, created_at, commande_lignes(quantite_demandee, articles(nom_article, gamme))"
+          `id, client, statut, mode_chargement, type_tc, numero_proforma, note_tableau_commande${avecRemarque ? ", remarque_tableau_commande" : ""}, created_at, commande_lignes(quantite_demandee, articles(nom_article, gamme))`
         )
         .neq("statut", "LIVREE")
         .order("created_at", { ascending: true }),
@@ -169,6 +173,7 @@ export async function loadManquantData(families: string[], selectedFamille: stri
           type_tc: string | null;
           numero_proforma: string | null;
           note_tableau_commande: string | null;
+          remarque_tableau_commande?: string | null;
           created_at: string | null;
           commande_lignes:
             | {
@@ -209,6 +214,8 @@ export async function loadManquantData(families: string[], selectedFamille: stri
       statut: String(commande.statut || "EN_COURS").trim(),
       date_ecriture: commande.created_at,
       note: String(commande.note_tableau_commande || ""),
+      // absent de la reponse = colonne pas encore creee en base (null) ; present mais vide = "" (remarque a ecrire)
+      remarque: commande.remarque_tableau_commande === undefined ? null : String(commande.remarque_tableau_commande || ""),
     });
   }
   const sharedCommandColumns = [...sharedCommandColumnsMap.values()];

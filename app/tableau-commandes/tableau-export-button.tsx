@@ -26,6 +26,9 @@ export type ExportCommandColumn = {
   statutCode: string;
   // Note libre de la commande (ligne "Note" de l'en-tete).
   note: string;
+  // Remarque libre (ligne "Remarque", juste avant "Date commande") ; null / undefined = pas de ligne Remarque (colonne pas encore
+  // creee en base).
+  remarque?: string | null;
   // Mode de chargement (ligne "tC") : seulement renseigne pour les feuilles de familles - la vue "Article
   // manquant" de l'ecran n'a pas cette ligne, donc undefined = pas de ligne tC.
   modeChargement?: string;
@@ -172,7 +175,7 @@ export function addTableauSheet(
   bannerRow(title);
 
   // Meme ordre d'en-tete que l'ecran : Note, Statut, Client, Nombre de camion, tC (feuilles de familles
-  // seulement), Proforma, Date commande.
+  // seulement), Proforma, Remarque (si activee), Date commande.
   const noteRow = sheet.addRow(["Note", ...commandColumns.map((col) => col.note || ""), "", "", "", "", "", ...videsComposants]);
   const statutRow = sheet.addRow(["Statut", ...commandColumns.map((col) => col.statut), "", "", "", "", "", ...videsComposants]);
   const clientRow = sheet.addRow(["Client", ...commandColumns.map((col) => col.client || "-"), "", "", "", "", "", ...videsComposants]);
@@ -200,6 +203,10 @@ export function addTableauSheet(
     "Reste apres",
     ...entetesComposants,
   ]);
+  const avecRemarque = commandColumns.some((col) => col.remarque !== undefined && col.remarque !== null);
+  const remarqueRow = avecRemarque
+    ? sheet.addRow(["Remarque", ...commandColumns.map((col) => col.remarque || ""), "", "", "", "", "", ...videsComposants])
+    : null;
   const dateRow = sheet.addRow([
     "Date commande",
     ...commandColumns.map((col) => formatDateFr(col.dateEcriture)),
@@ -214,7 +221,16 @@ export function addTableauSheet(
   // Lignes Statut et Client : chaque commande a la couleur de son statut, comme a l'ecran ; le reste
   // de l'en-tete est turquoise.
   const lignesColoreesParStatut = new Set([statutRow.number, clientRow.number]);
-  const lignesEnTete = [noteRow, statutRow, clientRow, camionRow, ...(tcRow ? [tcRow] : []), proformaRow, dateRow];
+  const lignesEnTete = [
+    noteRow,
+    statutRow,
+    clientRow,
+    camionRow,
+    ...(tcRow ? [tcRow] : []),
+    proformaRow,
+    ...(remarqueRow ? [remarqueRow] : []),
+    dateRow,
+  ];
   for (const row of lignesEnTete) {
     const colonnesParStatut = lignesColoreesParStatut.has(row.number);
     for (let colIndex = 1; colIndex <= totalCols; colIndex++) {
@@ -223,8 +239,9 @@ export function addTableauSheet(
         colonnesParStatut && colIndex >= firstCommandCol && colIndex <= lastCommandCol
           ? commandColumns[colIndex - firstCommandCol]
           : null;
-      // La note est un texte libre (souvent long) : pas en gras, comme a l'ecran.
-      cell.font = { bold: !(row.number === noteRow.number && colIndex > 1), color: { argb: TEXT_DARK } };
+      // La note et la remarque sont des textes libres (souvent longs) : pas en gras, comme a l'ecran.
+      const texteLibre = row.number === noteRow.number || (remarqueRow !== null && row.number === remarqueRow.number);
+      cell.font = { bold: !(texteLibre && colIndex > 1), color: { argb: TEXT_DARK } };
       cell.fill = {
         type: "pattern",
         pattern: "solid",

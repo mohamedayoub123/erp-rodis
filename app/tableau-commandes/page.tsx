@@ -247,6 +247,8 @@ function renderArticleManquantInsideTableau(
   composants: Map<string, ComposantArticle[]> = new Map(),
   composantsIndisponibles: boolean = false
 ) {
+  // Ligne "Remarque" (avant "Date de commande") : seulement quand sa colonne existe en base (SQL de la remarque execute)
+  const avecRemarque = commandColumns.some((column) => column.remarque !== null);
   const nbColComposants = TYPES_COMPOSANTS.length * 2;
   const columnsAfterStand = commandColumns.filter(
     (column) => !hideStand || String(column.statut || "").toUpperCase() !== "STAND"
@@ -319,6 +321,7 @@ function renderArticleManquantInsideTableau(
     statut: getStatusLabel(column.statut),
     statutCode: String(column.statut || ""),
     note: column.note,
+    remarque: column.remarque,
   }));
 
   const exportRows: ExportDataRow[] = visibleSections.flatMap(({ family, rows }) => {
@@ -573,19 +576,19 @@ function renderArticleManquantInsideTableau(
                           <CommandeNoteCell commandeId={column.id} initialValue={column.note} canEdit={canEditNote} />
                         </th>
                       ))}
-                      <th rowSpan={6} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                      <th rowSpan={avecRemarque ? 7 : 6} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
                         TOTAL
                       </th>
-                      <th rowSpan={6} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                      <th rowSpan={avecRemarque ? 7 : 6} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
                         STOCK
                       </th>
-                      <th rowSpan={6} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                      <th rowSpan={avecRemarque ? 7 : 6} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
                         RESTE
                       </th>
-                      <th rowSpan={6} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
+                      <th rowSpan={avecRemarque ? 7 : 6} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
                         Qt en cours de Conditionnement
                       </th>
-                      <th rowSpan={6} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
+                      <th rowSpan={avecRemarque ? 7 : 6} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
                         Reste apres Conditionnement
                       </th>
                       {TYPES_COMPOSANTS.map((type, index) => (
@@ -650,7 +653,7 @@ function renderArticleManquantInsideTableau(
                         ["Stock", "Besoin"].map((genre) => (
                           <th
                             key={`manquant-sous-${type.cle}-${genre}`}
-                            rowSpan={3}
+                            rowSpan={avecRemarque ? 4 : 3}
                             title={genre === "Stock" ? "Stock du Depot E" : "Besoin pour toutes les commandes ouvertes"}
                             className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[14px] font-medium leading-tight text-slate-950`}
                           >
@@ -672,6 +675,26 @@ function renderArticleManquantInsideTableau(
                         </th>
                       ))}
                     </tr>
+                    {avecRemarque ? (
+                      <tr>
+                        <th className={`sticky left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium uppercase text-slate-950`}>
+                          Remarque
+                        </th>
+                        {visibleCommandColumns.map((column) => (
+                          <th
+                            key={`remarque-${column.key}`}
+                            className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-1 text-center text-[16px] font-medium normal-case text-slate-950`}
+                          >
+                            <CommandeNoteCell
+                              commandeId={column.id}
+                              initialValue={column.remarque ?? ""}
+                              canEdit={canEditNote}
+                              champ="remarque"
+                            />
+                          </th>
+                        ))}
+                      </tr>
+                    ) : null}
                     <tr>
                       <th className={`sticky left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium uppercase text-slate-950`}>
                         Date de commande
@@ -788,6 +811,8 @@ function renderGenericFamilyTemplate(
   composants: Map<string, ComposantArticle[]> = new Map(),
   composantsIndisponibles: boolean = false
 ) {
+  // Ligne "Remarque" (avant "Date commande") : seulement quand sa colonne existe en base (SQL de la remarque execute)
+  const avecRemarque = commandColumns.some((column) => column.remarque !== null);
   // Lignes du tableau + lignes d'export Excel : meme calcul que l'export de
   // toutes les familles (voir buildFamilyView dans family-data.ts).
   const { columnsAfterStand, visibleCommandColumns, rowsWithSubGamme, exportCommandColumns, exportRows } = buildFamilyView(
@@ -1218,6 +1243,36 @@ function renderGenericFamilyTemplate(
                 
                   {enteteVide("proforma")}
                 </tr>
+                {avecRemarque ? (
+                  <tr>
+                    <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium text-slate-950`}>
+                      Remarque
+                    </th>
+                    {commandColumns.length > 0 ? (
+                      visibleCommandColumns.map((column) => (
+                        <th
+                          key={`remarque-${column.key}`}
+                          className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-1 text-center text-[16px] font-medium normal-case text-slate-950`}
+                        >
+                          <CommandeNoteCell
+                            commandeId={column.id}
+                            initialValue={column.remarque ?? ""}
+                            canEdit={canEditNote}
+                            champ="remarque"
+                          />
+                        </th>
+                      ))
+                    ) : (
+                      <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                    )}
+                    <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                    <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                    <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                    <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                    <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                    {enteteVide("remarque")}
+                  </tr>
+                ) : null}
                 <tr>
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium text-slate-950`}>
                     Date commande

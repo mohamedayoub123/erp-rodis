@@ -10,6 +10,7 @@ import {
 } from "./family-lib";
 import type { ExportCommandColumn, ExportDataRow } from "./tableau-export-button";
 import type { ComposantArticle } from "@/lib/composants-types";
+import { remarqueTableauDisponible } from "@/lib/remarque-tableau-commande";
 
 // Donnees du Tableau de commande (une famille = un tableau). Code deplace
 // depuis page.tsx pour pouvoir etre reutilise par l'export Excel de toutes
@@ -30,6 +31,9 @@ export type CommandColumn = {
   statut: string;
   date_ecriture: string | null;
   note: string;
+  // Remarque libre (ligne "Remarque", avant "Date commande") ; null = la colonne n'existe pas encore en base (SQL pas execute) : la
+  // ligne n'est alors pas affichee
+  remarque: string | null;
 };
 
 export const EMPTY_TABLE_FAMILIES = new Set<string>([]);
@@ -474,6 +478,8 @@ type CommandeColonneRow = {
   type_tc: string | null;
   numero_proforma: string | null;
   note_tableau_commande: string | null;
+  // Absent de la reponse tant que le SQL de la remarque n'est pas execute
+  remarque_tableau_commande?: string | null;
   created_at: string | null;
 };
 
@@ -519,6 +525,8 @@ async function fetchAllArticlesRows(): Promise<{ rows: ArticleRowAll[]; error: s
 }
 
 export async function loadSharedFamilyData(options?: { withLots?: boolean }): Promise<SharedFamilyData> {
+  // La remarque n'est lue que si sa colonne existe (SQL de la remarque execute) : une colonne absente ferait echouer toute la lecture
+  const avecRemarque = await remarqueTableauDisponible();
   const [articlesResult, commandesAvecLignesResult, commandesColonnesResult, qtEnCoursByArticleKey] =
     await Promise.all([
       fetchAllArticlesRows(),
@@ -531,7 +539,9 @@ export async function loadSharedFamilyData(options?: { withLots?: boolean }): Pr
         .order("created_at", { ascending: true }),
       supabaseServer
         .from("commandes")
-        .select("id, client, statut, mode_chargement, type_tc, numero_proforma, note_tableau_commande, created_at")
+        .select(
+          `id, client, statut, mode_chargement, type_tc, numero_proforma, note_tableau_commande${avecRemarque ? ", remarque_tableau_commande" : ""}, created_at`
+        )
         .neq("statut", "LIVREE")
         .order("created_at", { ascending: true }),
       fetchQtEnCoursConditionnementByArticle(),
@@ -584,6 +594,8 @@ function buildAllActiveCommandColumns(rows: CommandeColonneRow[]) {
       statut: String(commande.statut || "EN_COURS").trim(),
       date_ecriture: commande.created_at,
       note: String(commande.note_tableau_commande || ""),
+      // absent de la reponse = colonne pas encore creee en base (null) ; present mais vide = "" (remarque a ecrire)
+      remarque: commande.remarque_tableau_commande === undefined ? null : String(commande.remarque_tableau_commande || ""),
     });
   }
 
@@ -857,6 +869,7 @@ export function buildFamilyView(
     statut: getStatusLabel(column.statut),
     statutCode: String(column.statut || ""),
     note: column.note,
+    remarque: column.remarque,
     modeChargement: column.mode_chargement,
   }));
 

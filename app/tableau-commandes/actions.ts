@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canViewPageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { remarqueTableauDisponible, SQL_REMARQUE_TABLEAU } from "@/lib/remarque-tableau-commande";
 import { buildAllFamiliesSheets, type FamilySheet } from "./family-data";
 import { buildManquantSheet } from "./manquant-data";
 
@@ -28,6 +29,38 @@ export async function updateCommandeNoteAction(formData: FormData) {
   const { error } = await supabaseServer
     .from("commandes")
     .update({ note_tableau_commande: note })
+    .eq("id", commandeId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/tableau-commandes");
+}
+
+// Ligne "Remarque" (avant la ligne "Date commande") : meme principe et meme droit que la note, dans sa propre colonne
+// (scripts/sql/add_commandes_remarque_tableau.sql). Ancree sur la 1ere commande de la colonne, comme la note.
+export async function updateCommandeRemarqueAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "commandesDetail"))) {
+    throw new Error("Cet utilisateur ne peut pas modifier cette remarque.");
+  }
+
+  if (!(await remarqueTableauDisponible())) {
+    throw new Error(`La remarque n'est pas encore activee : le SQL ${SQL_REMARQUE_TABLEAU} doit d'abord etre execute dans Supabase.`);
+  }
+
+  const commandeId = Number(String(formData.get("commande_id") || "0"));
+  if (!commandeId) {
+    throw new Error("Commande invalide.");
+  }
+
+  const remarque = String(formData.get("note") || "").trim() || null;
+
+  const { error } = await supabaseServer
+    .from("commandes")
+    .update({ remarque_tableau_commande: remarque })
     .eq("id", commandeId);
 
   if (error) {
