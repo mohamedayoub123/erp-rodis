@@ -156,13 +156,15 @@ export default async function RootLayout({
         <ServiceWorkerRegister />
         <SessionWatcher />
         <div className="min-h-full">
-          <GlobalNav pageViewMap={pageViewMap} canManageUsers={canManageUsers} />
-          <div className="flex min-h-[calc(100vh-132px)] flex-col">
-            <div className="no-print mx-auto flex w-full flex-wrap items-center justify-between gap-3 px-4 pt-5 lg:px-8">
-              <div className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800">
-                Utilisateur : {currentUser}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
+          {/* La barre utilisateur est dans l'en-tete, sur la meme ligne que le logo et "ERP Rodis" (a droite) */}
+          <GlobalNav
+            pageViewMap={pageViewMap}
+            canManageUsers={canManageUsers}
+            barreUtilisateur={
+              <div className="no-print flex flex-wrap items-center gap-2 sm:justify-end">
+                <div className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800">
+                  Utilisateur : {currentUser}
+                </div>
                 <ZoomControl />
                 <details className="group relative">
                   <summary className="list-none rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950">
@@ -229,7 +231,9 @@ export default async function RootLayout({
                   </button>
                 </form>
               </div>
-            </div>
+            }
+          />
+          <div className="flex min-h-[calc(100vh-132px)] flex-col">
             <RouteAccessGate
               currentUser={currentUser}
               pageViewMap={pageViewMap}

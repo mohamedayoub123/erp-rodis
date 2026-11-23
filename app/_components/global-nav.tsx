@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { isSectionVisible, navItems, type NavItem } from "@/lib/nav-sections";
@@ -17,9 +18,14 @@ function prefixMatchLength(prefixes: string[], pathname: string): number {
 export function GlobalNav({
   pageViewMap,
   canManageUsers,
+  barreUtilisateur,
 }: {
   pageViewMap: Record<string, boolean>;
   canManageUsers: boolean;
+  // Barre "Utilisateur / Taille / Changer mot de passe / Deconnexion" (construite
+  // dans layout.tsx car elle utilise des actions serveur) : affichee a droite,
+  // sur la meme ligne que le logo et "ERP Rodis".
+  barreUtilisateur?: ReactNode;
 }) {
   const pathname = usePathname();
   const visibleItems = navItems.filter((item) => {
@@ -76,6 +82,7 @@ export function GlobalNav({
               </p>
             </div>
           </div>
+          {barreUtilisateur}
         </div>
 
         <nav className="flex flex-wrap gap-2">
