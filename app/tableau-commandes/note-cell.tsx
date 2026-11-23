@@ -6,7 +6,7 @@ import { updateCommandeNoteAction, updateCommandeRemarqueAction } from "./action
 // Ecriture libre, sauvegarde automatique - demande explicite : pas de
 // bouton "Enregistrer", juste ecrire puis quitter la case (ou Entree) pour
 // que ca sauvegarde tout seul. Sert pour la ligne "Note" (en haut) et la
-// ligne "Remarque" (avant la ligne "Date commande") : seul le champ change.
+// ligne "Remarque" (au-dessus de Note) : seul le champ change.
 export function CommandeNoteCell({
   commandeId,
   initialValue,

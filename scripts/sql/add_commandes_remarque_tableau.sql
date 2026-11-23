@@ -1,5 +1,5 @@
--- Nouvelle ligne "Remarque" dans le Tableau de commande, juste avant la ligne
--- "Date commande" : une remarque texte libre par commande (colonne), saisie
+-- Nouvelle ligne "Remarque" dans le Tableau de commande, tout en haut (au-dessus
+-- de la ligne "Note") : une remarque texte libre par commande (colonne), saisie
 -- directement dans la case et sauvegardee automatiquement (comme la ligne
 -- "Note" du haut, voir add_commandes_note_tableau.sql). Tant que ce script
 -- n'est pas execute, la ligne Remarque n'apparait pas et le Tableau de

@@ -38,7 +38,7 @@ export async function updateCommandeNoteAction(formData: FormData) {
   revalidatePath("/tableau-commandes");
 }
 
-// Ligne "Remarque" (avant la ligne "Date commande") : meme principe et meme droit que la note, dans sa propre colonne
+// Ligne "Remarque" (toute premiere ligne, au-dessus de Note) : meme principe et meme droit que la note, dans sa propre colonne
 // (scripts/sql/add_commandes_remarque_tableau.sql). Ancree sur la 1ere commande de la colonne, comme la note.
 export async function updateCommandeRemarqueAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();

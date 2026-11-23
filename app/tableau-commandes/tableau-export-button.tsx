@@ -26,8 +26,8 @@ export type ExportCommandColumn = {
   statutCode: string;
   // Note libre de la commande (ligne "Note" de l'en-tete).
   note: string;
-  // Remarque libre (ligne "Remarque", juste avant "Date commande") ; null / undefined = pas de ligne Remarque (colonne pas encore
-  // creee en base).
+  // Remarque libre (ligne "Remarque", toute premiere ligne de l'en-tete, au-dessus de Note) ; null / undefined = pas de ligne Remarque
+  // (colonne pas encore creee en base).
   remarque?: string | null;
   // Mode de chargement (ligne "tC") : seulement renseigne pour les feuilles de familles - la vue "Article
   // manquant" de l'ecran n'a pas cette ligne, donc undefined = pas de ligne tC.
@@ -174,8 +174,12 @@ export function addTableauSheet(
 
   bannerRow(title);
 
-  // Meme ordre d'en-tete que l'ecran : Note, Statut, Client, Nombre de camion, tC (feuilles de familles
-  // seulement), Proforma, Remarque (si activee), Date commande.
+  // Meme ordre d'en-tete que l'ecran : Remarque (si activee, toute premiere ligne), Note, Statut, Client, Nombre de camion, tC (feuilles
+  // de familles seulement), Proforma, Date commande.
+  const avecRemarque = commandColumns.some((col) => col.remarque !== undefined && col.remarque !== null);
+  const remarqueRow = avecRemarque
+    ? sheet.addRow(["Remarque", ...commandColumns.map((col) => col.remarque || ""), "", "", "", "", "", ...videsComposants])
+    : null;
   const noteRow = sheet.addRow(["Note", ...commandColumns.map((col) => col.note || ""), "", "", "", "", "", ...videsComposants]);
   const statutRow = sheet.addRow(["Statut", ...commandColumns.map((col) => col.statut), "", "", "", "", "", ...videsComposants]);
   const clientRow = sheet.addRow(["Client", ...commandColumns.map((col) => col.client || "-"), "", "", "", "", "", ...videsComposants]);
@@ -203,10 +207,6 @@ export function addTableauSheet(
     "Reste apres",
     ...entetesComposants,
   ]);
-  const avecRemarque = commandColumns.some((col) => col.remarque !== undefined && col.remarque !== null);
-  const remarqueRow = avecRemarque
-    ? sheet.addRow(["Remarque", ...commandColumns.map((col) => col.remarque || ""), "", "", "", "", "", ...videsComposants])
-    : null;
   const dateRow = sheet.addRow([
     "Date commande",
     ...commandColumns.map((col) => formatDateFr(col.dateEcriture)),
@@ -222,13 +222,13 @@ export function addTableauSheet(
   // de l'en-tete est turquoise.
   const lignesColoreesParStatut = new Set([statutRow.number, clientRow.number]);
   const lignesEnTete = [
+    ...(remarqueRow ? [remarqueRow] : []),
     noteRow,
     statutRow,
     clientRow,
     camionRow,
     ...(tcRow ? [tcRow] : []),
     proformaRow,
-    ...(remarqueRow ? [remarqueRow] : []),
     dateRow,
   ];
   for (const row of lignesEnTete) {
