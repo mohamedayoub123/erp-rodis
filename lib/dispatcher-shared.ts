@@ -77,7 +77,10 @@ export function computeQtCarton(
   if (!contenance || contenance <= 0) return null;
   if (!piecePerCarton || piecePerCarton <= 0) return null;
 
-  return Math.ceil(vrac / contenance / piecePerCarton);
+  // Marge minuscule : un vrac "pile" sur un nombre entier de cartons (ex : 600 cartons x 48 pieces x
+  // 0.2 L = 5760) ne doit pas donner un carton de trop a cause des decimales de l'ordinateur
+  // (5760.000000000001 / 0.2 / 48 = 600.0000000000001 -> 601 avec un arrondi superieur brut).
+  return Math.ceil(vrac / contenance / piecePerCarton - 1e-9);
 }
 
 // Decoupe un vrac total en lots ne depassant jamais le max autorise pour

@@ -3,7 +3,8 @@
 import { Fragment, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { saveProgrammeLigneBatchAction } from "./actions";
-import { HEURES_PAR_JOUR, findCapaciteFabrication, type MachineCapacite } from "@/lib/machine-capacite";
+import type { MachineCapacite } from "@/lib/machine-capacite";
+import { computeMaxPossible, computeQtCarton, parseVrac, quantitesLigne } from "@/lib/programme-auto-quantites";
 
 const MOIS_OPTIONS = [
   { value: "01", label: "Janvier" },
@@ -73,67 +74,9 @@ export type ArticleOption = {
 // pour que les 2 utilisent exactement le meme calcul).
 export type { MachineCapacite } from "@/lib/machine-capacite";
 
-// "Max possible" sur cette ligne = le plus limitant des 2 machines (jamais
-// juste Conditionnement) - demande explicite : "toujours on prend le
-// machine qui peut fait moins". Conditionnement connu via (machineId
-// Conditionnement, article fini) ; Fabrication connue via (machineId
-// Fabrication, article VRAC - vracArticleId). Une seule des 2 connue = son
-// propre max sert de limite ; aucune des 2 connue = pas de limite calculable
-// (retourne null, jamais 0 - une capacite non renseignee n'est pas "zero").
-function computeMaxPossible(
-  article: ArticleOption | null,
-  machineConditionnementId: number | null,
-  machineFabricationId: number | null,
-  capacites: Map<string, MachineCapacite>
-): { maxKg: number; maxCarton: number | null; limitant: "conditionnement" | "fabrication" | "les deux" } | null {
-  if (!article) return null;
-
-  const capaCondi =
-    machineConditionnementId != null ? capacites.get(`${machineConditionnementId}::${article.id}`) : undefined;
-  const capaFab = findCapaciteFabrication(capacites, machineFabricationId, article.vracArticleId, article.id);
-
-  let maxKgCondi: number | null = null;
-  if (capaCondi?.capacite && article.contenance && article.contenance > 0) {
-    const maxPieces = capaCondi.capacite * HEURES_PAR_JOUR * 60;
-    maxKgCondi = maxPieces * article.contenance;
-  }
-
-  let maxKgFab: number | null = null;
-  if (capaFab?.capaciteMax) {
-    maxKgFab = capaFab.capaciteMax * HEURES_PAR_JOUR;
-  }
-
-  if (maxKgCondi === null && maxKgFab === null) return null;
-
-  let maxKg: number;
-  let limitant: "conditionnement" | "fabrication" | "les deux";
-  if (maxKgCondi !== null && maxKgFab !== null) {
-    if (Math.abs(maxKgCondi - maxKgFab) < 0.01) {
-      maxKg = maxKgCondi;
-      limitant = "les deux";
-    } else if (maxKgCondi < maxKgFab) {
-      maxKg = maxKgCondi;
-      limitant = "conditionnement";
-    } else {
-      maxKg = maxKgFab;
-      limitant = "fabrication";
-    }
-  } else if (maxKgCondi !== null) {
-    maxKg = maxKgCondi;
-    limitant = "conditionnement";
-  } else {
-    maxKg = maxKgFab!;
-    limitant = "fabrication";
-  }
-
-  const maxCarton =
-    article.contenance && article.contenance > 0 && article.piecePerCarton && article.piecePerCarton > 0
-      ? Math.floor(maxKg / article.contenance / article.piecePerCarton)
-      : null;
-
-  return { maxKg, maxCarton, limitant };
-}
-
+// "Max possible" (le plus limitant des 2 machines) : calcul dans
+// lib/programme-auto-quantites.ts (computeMaxPossible), partage avec le remplissage
+// automatique de Qt carton / Vrac a fabriquer plus bas.
 function MaxPossibleCell({
   article,
   machineConditionnementId,
@@ -441,35 +384,21 @@ function ProgrameCell({
 }
 
 // Qt carton = (vrac a fabriquer / contenance de l'article) / piece par
-// carton de l'article. Ex: Lait White Secret 500ml (contenance 0.5),
-// piece par carton 24, vrac saisi 3000 -> 3000/0.5 = 6000 pieces ->
-// 6000/24 = 250 cartons.
+// carton de l'article, toujours arrondi au carton SUPERIEUR : calcul dans
+// lib/programme-auto-quantites.ts (computeQtCarton). Ex: Lait White Secret
+// 500ml (contenance 0.5), piece par carton 24, vrac saisi 3000 ->
+// 3000/0.5 = 6000 pieces -> 6000/24 = 250 cartons.
 //
-// Toujours arrondi au carton SUPERIEUR (jamais de virgule) - un carton
-// entame compte comme un carton entier, meme convention que
-// lib/dispatcher-shared.ts (computeQtCarton, utilisee au Dispatch). Cette
-// fonction-ci est une implementation LOCALE et SEPAREE (calcul live cote
-// client pendant la saisie) qui gardait a tort une division brute - la
-// cellule d'apercu arrondissait deja l'AFFICHAGE (Math.round), mais la
-// valeur qtCarton elle-meme restait fractionnaire (ex: 312.5) une fois
-// enregistree sur programme_lignes.qt_carton, faisant ensuite paraitre
-// tous les articles de conditionnement lies (carton, sleeve, flacon,
-// capsule...) sous-values au Dispatch/Verifier Stock.
-function computeQtCarton(vrac: number, article: ArticleOption | null) {
-  if (!article || !vrac || vrac <= 0) return null;
-  if (!article.contenance || article.contenance <= 0) return null;
-  if (!article.piecePerCarton || article.piecePerCarton <= 0) return null;
-
-  const nbPieces = vrac / article.contenance;
-  return Math.ceil(nbPieces / article.piecePerCarton);
-}
-
+// Produit et Vrac sont pilotes par ProgrammeRow (etat remonte) : la ligne
+// remplit elle-meme Qt carton et Vrac avec ce que la chaine peut produire quand
+// la chaine a la capacite du produit, et le vrac saisi a la main reste prioritaire.
 function LigneRowCells({
   articles,
   machineTypeProduit,
-  initialArticle,
-  initialVracInput,
-  onUpdate,
+  selectedArticle,
+  vracInput,
+  onSelectArticle,
+  onVracChange,
 }: {
   articles: ArticleOption[];
   // Types acceptes par la machine Conditionnement de cette ligne - liste
@@ -477,15 +406,12 @@ function LigneRowCells({
   // bloquer une ligne existante juste parce que personne n'a encore rempli
   // type_produit sur cette machine).
   machineTypeProduit: string[];
-  initialArticle?: ArticleOption | null;
-  initialVracInput?: string;
-  onUpdate: (partial: Partial<RowState>) => void;
+  selectedArticle: ArticleOption | null;
+  vracInput: string;
+  onSelectArticle: (article: ArticleOption | null) => void;
+  onVracChange: (next: string) => void;
 }) {
-  const [selectedArticle, setSelectedArticle] = useState<ArticleOption | null>(initialArticle ?? null);
-  const [vracInput, setVracInput] = useState(initialVracInput || "");
-
-  const vracNumber = Number(vracInput.replace(",", "."));
-  const qtCarton = computeQtCarton(vracNumber, selectedArticle);
+  const qtCarton = computeQtCarton(parseVrac(vracInput), selectedArticle);
 
   // Interdit de choisir un article que cette machine ne sait pas produire -
   // filtre la liste elle-meme (jamais juste desactivee/avertie).
@@ -494,36 +420,11 @@ function LigneRowCells({
       ? articles.filter((article) => machineTypeProduit.includes(article.type))
       : articles;
 
-  function handleSelectArticle(article: ArticleOption | null) {
-    setSelectedArticle(article);
-    // Recalcule aussi Qt carton ici, pas seulement dans handleVracChange :
-    // si le Vrac est tape AVANT de choisir le Produit, computeQtCarton
-    // n'avait encore aucun article et renvoyait null - sans ce recalcul,
-    // Qt carton restait bloque a vide meme apres avoir choisi le Produit.
-    const nextQtCarton = computeQtCarton(vracNumber, article);
-    onUpdate({
-      articleId: article?.id ?? null,
-      produit: article?.label ?? "",
-      typeArticle: article?.type ?? "",
-      qtCarton: nextQtCarton,
-    });
-  }
-
-  function handleVracChange(next: string) {
-    setVracInput(next);
-    const nextNumber = Number(next.replace(",", "."));
-    const nextQtCarton = computeQtCarton(nextNumber, selectedArticle);
-    onUpdate({
-      vracAFabriquer: nextNumber > 0 ? nextNumber : null,
-      qtCarton: nextQtCarton,
-    });
-  }
-
   return (
     <>
       <td className="px-4 py-3 text-slate-700">{selectedArticle?.type || "-"}</td>
       <td className="px-4 py-3">
-        <ProduitCell articles={compatibleArticles} initialLabel={selectedArticle?.label} onSelect={handleSelectArticle} />
+        <ProduitCell articles={compatibleArticles} initialLabel={selectedArticle?.label} onSelect={onSelectArticle} />
       </td>
       <td className="px-4 py-3 text-slate-700">
         {qtCarton !== null ? Math.round(qtCarton).toLocaleString("fr-FR") : "-"}
@@ -533,8 +434,9 @@ function LigneRowCells({
           type="text"
           inputMode="decimal"
           value={vracInput}
-          onChange={(event) => handleVracChange(event.target.value)}
+          onChange={(event) => onVracChange(event.target.value)}
           placeholder="Ex: 3000"
+          title="Rempli automatiquement avec ce que la chaine peut produire en 8 h quand elle a la capacite du produit. Tu peux le changer : la Qt carton suit."
           className="w-28 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
         />
       </td>
@@ -607,14 +509,64 @@ function ProgrammeRow({
   const [machineFabricationIdForMax, setMachineFabricationIdForMax] = useState<number | null>(
     prefillMachineFabricationId ?? null
   );
+  // Vrac a fabriquer : rempli automatiquement avec ce que la chaine peut produire (capacite du produit
+  // sur la machine), tant que personne ne l'a saisi. Des qu'il est ecrit a la main (ou vient d'un
+  // programme de l'historique) il n'est plus jamais remplace, et la Qt carton suit ce qui est ecrit.
+  const [vracInput, setVracInput] = useState(prefillVracInput ?? "");
+  const [vracManuel, setVracManuel] = useState(Boolean(prefillVracInput));
+
+  function calculerQuantites(article: ArticleOption | null, machineFabricationId: number | null) {
+    const quantites = quantitesLigne({
+      article,
+      vracInput,
+      vracManuel,
+      machineConditionnementId: machine.machineId,
+      machineFabricationId,
+      capacites: machineCapacites,
+    });
+    setVracInput(quantites.vracInput);
+    return quantites;
+  }
+
+  function handleSelectArticle(article: ArticleOption | null) {
+    // Recalcule Qt carton et Vrac des le choix du Produit : vrac saisi avant = garde ; sinon quantites
+    // de la chaine si elle a la capacite de ce produit (sinon vide).
+    const quantites = calculerQuantites(article, machineFabricationIdForMax);
+    handleUpdate({
+      articleId: article?.id ?? null,
+      produit: article?.label ?? "",
+      typeArticle: article?.type ?? "",
+      vracAFabriquer: quantites.vrac,
+      qtCarton: quantites.qtCarton,
+    });
+  }
+
+  function handleVracChange(next: string) {
+    setVracInput(next);
+    setVracManuel(next.trim() !== "");
+    const nombre = parseVrac(next);
+    handleUpdate({
+      vracAFabriquer: nombre > 0 ? nombre : null,
+      qtCarton: computeQtCarton(nombre, articleForMax),
+    });
+  }
 
   function handleUpdate(partial: Partial<RowState>) {
+    let complet = partial;
     if (partial.typeArticle !== undefined) setTypeArticle(partial.typeArticle);
     if (partial.articleId !== undefined) {
       setArticleForMax(partial.articleId ? articles.find((a) => a.id === partial.articleId) ?? null : null);
     }
-    if (partial.machineFabricationId !== undefined) setMachineFabricationIdForMax(partial.machineFabricationId);
-    onUpdate(partial);
+    if (partial.machineFabricationId !== undefined) {
+      setMachineFabricationIdForMax(partial.machineFabricationId);
+      // La machine Fabrication peut etre plus limitante que la chaine : on recalcule les quantites
+      // automatiques (jamais un vrac saisi a la main)
+      if (articleForMax && !vracManuel && partial.articleId === undefined) {
+        const quantites = calculerQuantites(articleForMax, partial.machineFabricationId);
+        complet = { ...partial, vracAFabriquer: quantites.vrac, qtCarton: quantites.qtCarton };
+      }
+    }
+    onUpdate(complet);
   }
 
   return (
@@ -628,6 +580,8 @@ function ProgrammeRow({
             onChange={(nextMachine) => {
               setMachine(nextMachine);
               setResetToken((token) => token + 1);
+              setVracInput("");
+              setVracManuel(false);
               handleUpdate({
                 machineId: nextMachine.machineId,
                 chaine: nextMachine.chaine,
@@ -648,9 +602,10 @@ function ProgrammeRow({
         key={resetToken}
         articles={articles}
         machineTypeProduit={machine.typeProduit}
-        initialArticle={resetToken === 0 ? prefillArticle : null}
-        initialVracInput={resetToken === 0 ? prefillVracInput : undefined}
-        onUpdate={handleUpdate}
+        selectedArticle={articleForMax}
+        vracInput={vracInput}
+        onSelectArticle={handleSelectArticle}
+        onVracChange={handleVracChange}
       />
       <MachineFabricationAndPlateformeCells
         fabricationMachines={fabricationMachines}
@@ -891,16 +846,19 @@ export function ProgrammeLigneTable({
         rowsRef.current = {};
         setSubRowCounts({});
         setResetKey((current) => current + 1);
-        // Save reste sur cette page (grille reinitialisee, prete pour un
-        // nouveau programme) - seul Dispatch redirige vers Ravitailleur, la
-        // ou le programme vient d'etre reparti en lots. La redirection
-        // quitte la page avant que le bandeau d'avertissement soit visible -
-        // une alerte le montre donc en plus, juste avant de partir.
+        // Dispatch redirige vers Ravitailleur, la ou le programme vient d'etre
+        // reparti en lots ; Save redirige directement sur le programme (PL) qui
+        // vient d'etre cree (Historique programme). La grille est reinitialisee
+        // pour quand on revient. La redirection quitte la page avant que le
+        // bandeau d'avertissement soit visible - une alerte le montre donc en
+        // plus, juste avant de partir.
         if (withDispatch) {
           if (result.warnings.length > 0) {
             window.alert(result.warnings.join("\n"));
           }
           router.push("/ravitailleur-par-ligne");
+        } else {
+          router.push(`/historique-programme/${result.groupe_id}`);
         }
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'enregistrement.");
