@@ -156,6 +156,7 @@ function ProduitCell({
 }) {
   const [value, setValue] = useState(initialLabel || "");
   const [showDropdown, setShowDropdown] = useState(false);
+  const [rawHighlightedIndex, setRawHighlightedIndex] = useState(-1);
 
   const filtered = useMemo(() => {
     const words = value.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -166,6 +167,40 @@ function ProduitCell({
       return words.every((word) => label.includes(word));
     });
   }, [value, articles]);
+
+  // La liste change a chaque frappe : un index reste hors bornes -> rien en surbrillance (valeur derivee au
+  // rendu, comme ProduitPickerField)
+  const highlightedIndex = rawHighlightedIndex < filtered.length ? rawHighlightedIndex : -1;
+
+  function choisir(article: ArticleOption) {
+    setValue(article.label);
+    onSelect(article);
+    setShowDropdown(false);
+  }
+
+  // Clavier : fleche bas / haut pour descendre / monter dans les suggestions, Entree pour choisir celle qui est
+  // en surbrillance, Echap pour fermer. La fleche bas rouvre la liste si elle est fermee.
+  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown" && !showDropdown) {
+      event.preventDefault();
+      setShowDropdown(true);
+      return;
+    }
+    if (!showDropdown || filtered.length === 0) return;
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setRawHighlightedIndex((highlightedIndex + 1) % filtered.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setRawHighlightedIndex(highlightedIndex <= 0 ? filtered.length - 1 : highlightedIndex - 1);
+    } else if (event.key === "Enter" && highlightedIndex >= 0) {
+      event.preventDefault();
+      choisir(filtered[highlightedIndex]);
+    } else if (event.key === "Escape") {
+      setShowDropdown(false);
+    }
+  }
 
   return (
     <div className="relative">
@@ -179,23 +214,27 @@ function ProduitCell({
         }}
         onFocus={() => setShowDropdown(true)}
         onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+        onKeyDown={handleKeyDown}
         placeholder="Ecris puis choisis..."
         autoComplete="off"
         className="w-full min-w-[14rem] rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
       />
       {showDropdown && filtered.length > 0 ? (
         <div className="absolute left-0 top-full z-50 mt-1 max-h-64 w-full min-w-[18rem] overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
-          {filtered.map((article) => (
+          {filtered.map((article, index) => (
             <button
               key={article.id}
               type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                setValue(article.label);
-                onSelect(article);
-                setShowDropdown(false);
+              // la suggestion en surbrillance reste visible quand on descend avec les fleches dans une longue liste
+              ref={(element) => {
+                if (element && index === highlightedIndex) element.scrollIntoView({ block: "nearest" });
               }}
-              className="block w-full px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => setRawHighlightedIndex(index)}
+              onClick={() => choisir(article)}
+              className={`block w-full px-3 py-2 text-left text-sm ${
+                index === highlightedIndex ? "bg-sky-100 text-sky-900" : "text-slate-800 hover:bg-slate-100"
+              }`}
             >
               {article.label}
             </button>
