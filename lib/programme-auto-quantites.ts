@@ -115,12 +115,14 @@ export function capaciteBatch(
 }
 
 // Arrondi du vrac en batchs entiers : total / max = 3,4 -> 3 batchs, 3,5 et plus -> 4 batchs, et le vrac
-// devient batchs x max (batchs pleins). Un vrac qui tient dans un seul batch reste tel quel (un batch
-// partiel, on ne le gonfle pas jusqu'au max).
+// devient batchs x max (batchs pleins) ; de meme 0,96 -> 1 batch plein (2 880 kg pour un max de 3 000 ->
+// 3 000). Un vrac qui n'atteint pas la moitie d'un batch reste tel quel (un seul batch partiel, on ne le
+// gonfle pas jusqu'au max).
 export function arrondirEnBatchs(vrac: number, maxBatch: number): { batchs: number; vrac: number } {
   if (!(vrac > 0) || !(maxBatch > 0)) return { batchs: 0, vrac };
-  if (vrac <= maxBatch) return { batchs: 1, vrac };
-  const batchs = Math.floor(vrac / maxBatch + 0.5 + TOLERANCE_CARTON);
+  const ratio = vrac / maxBatch;
+  if (ratio < 0.5 - TOLERANCE_CARTON) return { batchs: 1, vrac };
+  const batchs = Math.max(1, Math.floor(ratio + 0.5 + TOLERANCE_CARTON));
   return { batchs, vrac: arrondir6(batchs * maxBatch) };
 }
 
@@ -158,11 +160,14 @@ export function formatHeures(minutes: number): string {
 // Quantites de TOUTES les lignes du programme. Les lignes d'une meme chaine se partagent sa journee de 8 h :
 // - ligne saisie a la main : son vrac reste tel quel, la Qt carton suit, et elle consomme du temps de chaine
 //   (cartons x pieces par carton / pieces par minute) ;
-// - lignes automatiques (rien saisi) qui ont la capacite sur cette chaine : elles se partagent a parts egales
-//   ce qu'il reste de la journee (8 h moins le temps des lignes saisies a la main) : cartons entiers, puis
-//   vrac = cartons x pieces par carton x contenance. Une seule ligne = la journee complete ;
+// - lignes automatiques (rien saisi) qui ont la capacite sur cette chaine : elles se partagent ce qu'il reste
+//   de la journee (8 h moins le temps des lignes saisies a la main), dans l'ordre de la grille, chacune a parts
+//   egales de ce qu'il reste : cartons entiers, puis vrac = cartons x pieces par carton x contenance. Une seule
+//   ligne = la journee complete ;
 // - quand une machine Fabrication avec un Max est choisie sur une ligne automatique, son vrac est arrondi en
-//   batchs entiers (arrondirEnBatchs) et la Qt carton est recalculee depuis ce vrac ;
+//   batchs entiers (arrondirEnBatchs) et la Qt carton est recalculee depuis ce vrac ; le temps reellement
+//   utilise apres cet arrondi est retire de ce qui reste pour les lignes suivantes (le 1er article prend son
+//   batch plein, le reste du temps va a l'autre) ;
 // - ligne automatique sans capacite sur cette chaine : vide (un vrac rempli pour un autre produit ne reste pas).
 // Changer une ligne a la main recalcule donc les autres lignes automatiques de la chaine pour garder 8 h.
 export function repartirJournee(
@@ -206,10 +211,16 @@ export function repartirJournee(
   }
 
   for (const [chaineId, autos] of autosParChaine) {
-    const restant = Math.max(0, minutesJour - (minutesManuelles.get(chaineId) ?? 0));
-    const part = restant / autos.length;
+    // Les lignes automatiques se servent dans l'ordre de la grille : chacune prend sa part a parts egales de
+    // ce qu'il reste (restant / nombre de lignes pas encore servies), puis son vrac est arrondi en batchs
+    // entiers, et c'est le temps REELLEMENT utilise (apres arrondi) qui est retire de ce qui reste pour les
+    // suivantes : "le 1er prend son batch plein (3 000), le reste va a l'autre article".
+    let restant = Math.max(0, minutesJour - (minutesManuelles.get(chaineId) ?? 0));
+    let nonServies = autos.length;
 
     for (const entree of autos) {
+      const part = restant / nonServies;
+      nonServies--;
       const capa = capaDe(entree)!;
       const cartons = Math.floor((capa.capacite * part) / capa.piecePerCarton + TOLERANCE_CARTON);
       if (cartons <= 0) {
@@ -227,7 +238,9 @@ export function repartirJournee(
           qtCarton = computeQtCarton(vrac, entree.article) ?? cartons;
         }
       }
-      resultat.set(entree.key, { vracInput: String(vrac), vrac, qtCarton, minutes: minutesDe(qtCarton, capa) });
+      const minutes = minutesDe(qtCarton, capa);
+      resultat.set(entree.key, { vracInput: String(vrac), vrac, qtCarton, minutes });
+      restant = Math.max(0, restant - (minutes ?? 0));
     }
   }
 
