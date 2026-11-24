@@ -6,8 +6,12 @@ import { HEURES_PAR_JOUR, findCapaciteFabrication, type MachineCapacite } from "
 // Quand la chaine de conditionnement a la capacite du produit choisi (ex : 60 pieces/min), Qt carton et
 // Vrac a fabriquer se remplissent tout seuls avec ce que la chaine peut produire sur une journee :
 // 60 pieces/min x 60 x 8 h = 28 800 pieces, / 48 pieces par carton = 600 cartons, puis vrac = cartons x
-// pieces par carton x contenance. Le vrac reste modifiable : tant qu'il a ete saisi a la main il n'est plus
-// jamais remplace, et la Qt carton suit ce que l'utilisateur ecrit.
+// pieces par carton x contenance. C'est la chaine qui decide de la quantite (jamais limitee par la
+// fabrication). Quand on choisit la machine de Fabrication, son Max est la taille d'un batch (ex : 3000 kg) :
+// le vrac est arrondi au nombre de batchs entiers le plus proche (total / max = 1,9 -> 2 batchs ; 3,4 -> 3 ;
+// 3,5 et plus -> 4), le vrac devient batchs x max (6000) et la Qt carton est recalculee depuis ce vrac.
+// Le vrac reste modifiable : tant qu'il a ete saisi a la main il n'est plus jamais remplace, et la Qt carton
+// suit ce que l'utilisateur ecrit.
 
 // Un carton ou un vrac "juste a la limite" ne doit pas basculer a cause des decimales de l'ordinateur
 // (ex : 5760.000000000001 / 0.2 / 48 = 600.0000000000001 donnerait 601 cartons avec un arrondi superieur
@@ -98,48 +102,134 @@ export function computeMaxPossible(
 
 const arrondir6 = (valeur: number) => Math.round(valeur * 1e6) / 1e6;
 
-// Quantites proposees automatiquement : le maximum de cartons que la machine la plus limitante peut faire
-// sur une journee (cartons entiers), et le vrac correspondant. null si on ne peut pas les calculer
-// (aucune capacite, ou contenance / pieces par carton inconnues).
-export function calculerQuantitesAuto(
+// Taille maximum d'un batch sur la machine de Fabrication choisie (Equipements > machine Fabrication >
+// produit : champ Max, une QUANTITE de vrac en kg), null si pas de machine ou pas de Max renseigne.
+export function capaciteBatch(
   article: ArticleQuantites | null,
-  machineConditionnementId: number | null,
   machineFabricationId: number | null,
   capacites: Map<string, MachineCapacite>
-): { cartons: number; vrac: number } | null {
-  const max = computeMaxPossible(article, machineConditionnementId, machineFabricationId, capacites);
-  if (!max || !article || max.maxCarton === null || max.maxCarton <= 0) return null;
-  const { contenance, piecePerCarton } = article;
-  if (!contenance || !piecePerCarton) return null;
-  return { cartons: max.maxCarton, vrac: arrondir6(max.maxCarton * piecePerCarton * contenance) };
+): number | null {
+  if (!article || machineFabricationId == null) return null;
+  const capa = findCapaciteFabrication(capacites, machineFabricationId, article.vracArticleId, article.id);
+  return capa?.capaciteMax && capa.capaciteMax > 0 ? capa.capaciteMax : null;
 }
+
+// Arrondi du vrac en batchs entiers : total / max = 3,4 -> 3 batchs, 3,5 et plus -> 4 batchs, et le vrac
+// devient batchs x max (batchs pleins). Un vrac qui tient dans un seul batch reste tel quel (un batch
+// partiel, on ne le gonfle pas jusqu'au max).
+export function arrondirEnBatchs(vrac: number, maxBatch: number): { batchs: number; vrac: number } {
+  if (!(vrac > 0) || !(maxBatch > 0)) return { batchs: 0, vrac };
+  if (vrac <= maxBatch) return { batchs: 1, vrac };
+  const batchs = Math.floor(vrac / maxBatch + 0.5 + TOLERANCE_CARTON);
+  return { batchs, vrac: arrondir6(batchs * maxBatch) };
+}
+
 
 export type QuantitesLigne = {
   vracInput: string;
   vrac: number | null;
   qtCarton: number | null;
+  // Temps de chaine utilise par cette ligne (cartons x pieces par carton / pieces par minute), null si la
+  // chaine n'a pas la capacite de ce produit
+  minutes: number | null;
 };
 
-// Quantites de la ligne apres un choix de produit (ou de machine Fabrication) :
-// - vrac saisi a la main : il reste tel quel, la Qt carton suit (comportement d'avant) ;
-// - sinon : quantites automatiques de la machine si elle a la capacite du produit, sinon rien (un vrac
-//   rempli automatiquement pour l'ancien produit ne doit pas rester sur le nouveau).
-export function quantitesLigne(params: {
-  article: ArticleQuantites | null;
-  vracInput: string;
-  vracManuel: boolean;
-  machineConditionnementId: number | null;
-  machineFabricationId: number | null;
-  capacites: Map<string, MachineCapacite>;
-}): QuantitesLigne {
-  const { article, vracInput, vracManuel, machineConditionnementId, machineFabricationId, capacites } = params;
+const LIGNE_VIDE: QuantitesLigne = { vracInput: "", vrac: null, qtCarton: null, minutes: null };
 
-  if (vracManuel) {
-    const nombre = parseVrac(vracInput);
-    return { vracInput, vrac: nombre > 0 ? nombre : null, qtCarton: computeQtCarton(nombre, article) };
+export type EntreeRepartition = {
+  key: string;
+  // Chaine de conditionnement choisie sur cette ligne : les lignes d'une meme chaine se partagent sa journee
+  machineConditionnementId: number | null;
+  article: ArticleQuantites | null;
+  // Texte du champ Vrac (ne compte que si vracManuel)
+  vracInput: string;
+  // true des que le vrac a ete ecrit a la main (ou vient d'un programme de l'historique) : jamais remplace
+  vracManuel: boolean;
+  machineFabricationId: number | null;
+};
+
+export function formatHeures(minutes: number): string {
+  const total = Math.max(0, Math.round(minutes));
+  const heures = Math.floor(total / 60);
+  const reste = total - heures * 60;
+  return reste === 0 ? `${heures} h` : `${heures} h ${String(reste).padStart(2, "0")}`;
+}
+
+// Quantites de TOUTES les lignes du programme. Les lignes d'une meme chaine se partagent sa journee de 8 h :
+// - ligne saisie a la main : son vrac reste tel quel, la Qt carton suit, et elle consomme du temps de chaine
+//   (cartons x pieces par carton / pieces par minute) ;
+// - lignes automatiques (rien saisi) qui ont la capacite sur cette chaine : elles se partagent a parts egales
+//   ce qu'il reste de la journee (8 h moins le temps des lignes saisies a la main) : cartons entiers, puis
+//   vrac = cartons x pieces par carton x contenance. Une seule ligne = la journee complete ;
+// - quand une machine Fabrication avec un Max est choisie sur une ligne automatique, son vrac est arrondi en
+//   batchs entiers (arrondirEnBatchs) et la Qt carton est recalculee depuis ce vrac ;
+// - ligne automatique sans capacite sur cette chaine : vide (un vrac rempli pour un autre produit ne reste pas).
+// Changer une ligne a la main recalcule donc les autres lignes automatiques de la chaine pour garder 8 h.
+export function repartirJournee(
+  entrees: EntreeRepartition[],
+  capacites: Map<string, MachineCapacite>
+): Map<string, QuantitesLigne> {
+  const minutesJour = HEURES_PAR_JOUR * 60;
+  const resultat = new Map<string, QuantitesLigne>();
+
+  type Capa = { capacite: number; contenance: number; piecePerCarton: number };
+  const capaDe = (entree: EntreeRepartition): Capa | null => {
+    const article = entree.article;
+    if (!article || entree.machineConditionnementId == null) return null;
+    const capacite = capacites.get(`${entree.machineConditionnementId}::${article.id}`)?.capacite;
+    if (!capacite || capacite <= 0) return null;
+    if (!article.contenance || article.contenance <= 0) return null;
+    if (!article.piecePerCarton || article.piecePerCarton <= 0) return null;
+    return { capacite, contenance: article.contenance, piecePerCarton: article.piecePerCarton };
+  };
+  const minutesDe = (qtCarton: number | null, capa: Capa | null) =>
+    qtCarton != null && capa ? (qtCarton * capa.piecePerCarton) / capa.capacite : null;
+
+  const minutesManuelles = new Map<number, number>();
+  const autosParChaine = new Map<number, EntreeRepartition[]>();
+
+  for (const entree of entrees) {
+    const capa = capaDe(entree);
+    if (entree.vracManuel) {
+      const nombre = parseVrac(entree.vracInput);
+      const qtCarton = computeQtCarton(nombre, entree.article);
+      const minutes = minutesDe(qtCarton, capa);
+      resultat.set(entree.key, { vracInput: entree.vracInput, vrac: nombre > 0 ? nombre : null, qtCarton, minutes });
+      if (minutes != null && entree.machineConditionnementId != null) {
+        minutesManuelles.set(entree.machineConditionnementId, (minutesManuelles.get(entree.machineConditionnementId) ?? 0) + minutes);
+      }
+    } else if (capa && entree.machineConditionnementId != null) {
+      autosParChaine.set(entree.machineConditionnementId, [...(autosParChaine.get(entree.machineConditionnementId) ?? []), entree]);
+    } else {
+      resultat.set(entree.key, LIGNE_VIDE);
+    }
   }
 
-  const auto = calculerQuantitesAuto(article, machineConditionnementId, machineFabricationId, capacites);
-  if (!auto) return { vracInput: "", vrac: null, qtCarton: null };
-  return { vracInput: String(auto.vrac), vrac: auto.vrac, qtCarton: auto.cartons };
+  for (const [chaineId, autos] of autosParChaine) {
+    const restant = Math.max(0, minutesJour - (minutesManuelles.get(chaineId) ?? 0));
+    const part = restant / autos.length;
+
+    for (const entree of autos) {
+      const capa = capaDe(entree)!;
+      const cartons = Math.floor((capa.capacite * part) / capa.piecePerCarton + TOLERANCE_CARTON);
+      if (cartons <= 0) {
+        resultat.set(entree.key, LIGNE_VIDE);
+        continue;
+      }
+
+      let vrac = arrondir6(cartons * capa.piecePerCarton * capa.contenance);
+      let qtCarton = cartons;
+      const maxBatch = capaciteBatch(entree.article, entree.machineFabricationId, capacites);
+      if (maxBatch) {
+        const arrondi = arrondirEnBatchs(vrac, maxBatch);
+        if (arrondi.vrac !== vrac) {
+          vrac = arrondi.vrac;
+          qtCarton = computeQtCarton(vrac, entree.article) ?? cartons;
+        }
+      }
+      resultat.set(entree.key, { vracInput: String(vrac), vrac, qtCarton, minutes: minutesDe(qtCarton, capa) });
+    }
+  }
+
+  return resultat;
 }

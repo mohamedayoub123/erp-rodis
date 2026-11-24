@@ -4,7 +4,15 @@ import { Fragment, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { saveProgrammeLigneBatchAction } from "./actions";
 import type { MachineCapacite } from "@/lib/machine-capacite";
-import { computeMaxPossible, computeQtCarton, parseVrac, quantitesLigne } from "@/lib/programme-auto-quantites";
+import {
+  TOLERANCE_CARTON,
+  capaciteBatch,
+  computeMaxPossible,
+  formatHeures,
+  repartirJournee,
+  type EntreeRepartition,
+  type QuantitesLigne,
+} from "@/lib/programme-auto-quantites";
 
 const MOIS_OPTIONS = [
   { value: "01", label: "Janvier" },
@@ -123,6 +131,17 @@ type RowState = {
   vracAFabriquer: number | null;
   plateforme: string;
   programe: string;
+  machineFabricationId: number | null;
+};
+
+// Ce qui decide des quantites d'une ligne (porte par le tableau, reactif) : les articles d'une meme chaine se
+// partagent ses 8 h, donc la quantite d'une ligne depend des autres lignes de la chaine.
+type EtatLigne = {
+  machineId: number;
+  articleId: number | null;
+  // Texte du champ Vrac saisi ; ne compte que si vracManuel
+  vracInput: string;
+  vracManuel: boolean;
   machineFabricationId: number | null;
 };
 
@@ -389,14 +408,16 @@ function ProgrameCell({
 // 500ml (contenance 0.5), piece par carton 24, vrac saisi 3000 ->
 // 3000/0.5 = 6000 pieces -> 6000/24 = 250 cartons.
 //
-// Produit et Vrac sont pilotes par ProgrammeRow (etat remonte) : la ligne
-// remplit elle-meme Qt carton et Vrac avec ce que la chaine peut produire quand
-// la chaine a la capacite du produit, et le vrac saisi a la main reste prioritaire.
+// Produit et Vrac sont pilotes par le tableau (etat remonte, voir
+// ProgrammeLigneTable) : Qt carton et Vrac viennent de repartirJournee
+// (lib/programme-auto-quantites.ts) - les articles d'une meme chaine se
+// partagent ses 8 h, et un vrac saisi a la main reste prioritaire.
 function LigneRowCells({
   articles,
   machineTypeProduit,
   selectedArticle,
-  vracInput,
+  quantites,
+  batchs,
   onSelectArticle,
   onVracChange,
 }: {
@@ -407,11 +428,13 @@ function LigneRowCells({
   // type_produit sur cette machine).
   machineTypeProduit: string[];
   selectedArticle: ArticleOption | null;
-  vracInput: string;
+  quantites: QuantitesLigne;
+  // Nombre de batchs du vrac sur la machine Fabrication choisie (Max = taille d'un batch)
+  batchs: { nombre: number; max: number } | null;
   onSelectArticle: (article: ArticleOption | null) => void;
   onVracChange: (next: string) => void;
 }) {
-  const qtCarton = computeQtCarton(parseVrac(vracInput), selectedArticle);
+  const { qtCarton, vracInput, minutes } = quantites;
 
   // Interdit de choisir un article que cette machine ne sait pas produire -
   // filtre la liste elle-meme (jamais juste desactivee/avertie).
@@ -436,9 +459,15 @@ function LigneRowCells({
           value={vracInput}
           onChange={(event) => onVracChange(event.target.value)}
           placeholder="Ex: 3000"
-          title="Rempli automatiquement avec ce que la chaine peut produire en 8 h quand elle a la capacite du produit. Tu peux le changer : la Qt carton suit."
+          title="Rempli automatiquement avec ce que la chaine peut produire en 8 h (les articles d'une meme chaine se partagent les 8 h). Tu peux le changer : la Qt carton suit et les autres articles de la chaine se recalculent."
           className="w-28 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
         />
+        {minutes != null ? <p className="mt-1 text-[11px] text-slate-500">{formatHeures(minutes)} de chaine</p> : null}
+        {batchs ? (
+          <p className="text-[11px] text-slate-500">
+            {batchs.nombre} batch{batchs.nombre > 1 ? "s" : ""} de {batchs.max.toLocaleString("fr-FR")} kg max
+          </p>
+        ) : null}
       </td>
     </>
   );
@@ -452,8 +481,8 @@ function ProgrammeRow({
   articles,
   fabricationMachines,
   machineCapacites,
-  prefillArticle,
-  prefillVracInput,
+  etat,
+  quantites,
   prefillTypeArticle,
   prefillMachineFabricationId,
   prefillPlateforme,
@@ -462,6 +491,7 @@ function ProgrammeRow({
   subRowCount,
   onAddSubRow,
   onRemoveSubRow,
+  onEtat,
   onUpdate,
 }: {
   zoneLabel: string;
@@ -475,8 +505,10 @@ function ProgrammeRow({
   articles: ArticleOption[];
   fabricationMachines: FabricationMachineOption[];
   machineCapacites: Map<string, MachineCapacite>;
-  prefillArticle: ArticleOption | null;
-  prefillVracInput?: string;
+  // Etat des quantites de cette ligne (produit, vrac saisi, machine Fabrication) et leur resultat : portes par
+  // le tableau, car les articles d'une meme chaine se partagent ses 8 h (voir repartirJournee)
+  etat: EtatLigne;
+  quantites: QuantitesLigne;
   prefillTypeArticle?: string | null;
   prefillMachineFabricationId?: number | null;
   prefillPlateforme?: string | null;
@@ -485,6 +517,7 @@ function ProgrammeRow({
   subRowCount: number;
   onAddSubRow: () => void;
   onRemoveSubRow: () => void;
+  onEtat: (partial: Partial<EtatLigne>) => void;
   onUpdate: (partial: Partial<RowState>) => void;
 }) {
   // Reactif (pas seulement dans rowsRef, qui ne redeclenche pas de rendu) -
@@ -501,72 +534,36 @@ function ProgrammeRow({
   // le prefill historique ne doit s'appliquer qu'une seule fois, au tout
   // premier rendu.
   const [resetToken, setResetToken] = useState(0);
-  // Miroir local (en plus de rowsRef, qui ne redeclenche pas de rendu) du
-  // strict necessaire pour la cellule "Max possible" - LigneRowCells et
-  // MachineFabricationAndPlateformeCells gardent chacun leur propre etat,
-  // interne, jamais expose autrement que via onUpdate.
-  const [articleForMax, setArticleForMax] = useState<ArticleOption | null>(prefillArticle);
-  const [machineFabricationIdForMax, setMachineFabricationIdForMax] = useState<number | null>(
-    prefillMachineFabricationId ?? null
-  );
-  // Vrac a fabriquer : rempli automatiquement avec ce que la chaine peut produire (capacite du produit
-  // sur la machine), tant que personne ne l'a saisi. Des qu'il est ecrit a la main (ou vient d'un
-  // programme de l'historique) il n'est plus jamais remplace, et la Qt carton suit ce qui est ecrit.
-  const [vracInput, setVracInput] = useState(prefillVracInput ?? "");
-  const [vracManuel, setVracManuel] = useState(Boolean(prefillVracInput));
-
-  function calculerQuantites(article: ArticleOption | null, machineFabricationId: number | null) {
-    const quantites = quantitesLigne({
-      article,
-      vracInput,
-      vracManuel,
-      machineConditionnementId: machine.machineId,
-      machineFabricationId,
-      capacites: machineCapacites,
-    });
-    setVracInput(quantites.vracInput);
-    return quantites;
-  }
+  // Produit, vrac saisi et machine Fabrication de cette ligne viennent du tableau (etat remonte) : ce sont
+  // eux qui servent a partager les 8 h de la chaine entre ses articles (repartirJournee).
+  const articleChoisi = etat.articleId != null ? articles.find((a) => a.id === etat.articleId) ?? null : null;
+  const maxBatch = capaciteBatch(articleChoisi, etat.machineFabricationId, machineCapacites);
+  const batchs =
+    maxBatch && quantites.vrac && quantites.vrac > 0
+      ? { nombre: Math.ceil(quantites.vrac / maxBatch - TOLERANCE_CARTON), max: maxBatch }
+      : null;
 
   function handleSelectArticle(article: ArticleOption | null) {
-    // Recalcule Qt carton et Vrac des le choix du Produit : vrac saisi avant = garde ; sinon quantites
-    // de la chaine si elle a la capacite de ce produit (sinon vide).
-    const quantites = calculerQuantites(article, machineFabricationIdForMax);
+    // Qt carton et Vrac sont recalcules par le tableau (capacite de la chaine partagee entre ses articles)
+    onEtat({ articleId: article?.id ?? null });
     handleUpdate({
       articleId: article?.id ?? null,
       produit: article?.label ?? "",
       typeArticle: article?.type ?? "",
-      vracAFabriquer: quantites.vrac,
-      qtCarton: quantites.qtCarton,
     });
   }
 
+  // Ecrire le vrac a la main le rend prioritaire (jamais remplace par le calcul) ; le vider rend la main
+  // au calcul automatique.
   function handleVracChange(next: string) {
-    setVracInput(next);
-    setVracManuel(next.trim() !== "");
-    const nombre = parseVrac(next);
-    handleUpdate({
-      vracAFabriquer: nombre > 0 ? nombre : null,
-      qtCarton: computeQtCarton(nombre, articleForMax),
-    });
+    onEtat({ vracInput: next, vracManuel: next.trim() !== "" });
   }
 
   function handleUpdate(partial: Partial<RowState>) {
-    let complet = partial;
     if (partial.typeArticle !== undefined) setTypeArticle(partial.typeArticle);
-    if (partial.articleId !== undefined) {
-      setArticleForMax(partial.articleId ? articles.find((a) => a.id === partial.articleId) ?? null : null);
-    }
-    if (partial.machineFabricationId !== undefined) {
-      setMachineFabricationIdForMax(partial.machineFabricationId);
-      // La machine Fabrication peut etre plus limitante que la chaine : on recalcule les quantites
-      // automatiques (jamais un vrac saisi a la main)
-      if (articleForMax && !vracManuel && partial.articleId === undefined) {
-        const quantites = calculerQuantites(articleForMax, partial.machineFabricationId);
-        complet = { ...partial, vracAFabriquer: quantites.vrac, qtCarton: quantites.qtCarton };
-      }
-    }
-    onUpdate(complet);
+    // La machine Fabrication peut arrondir le vrac en batchs entiers
+    if (partial.machineFabricationId !== undefined) onEtat({ machineFabricationId: partial.machineFabricationId });
+    onUpdate(partial);
   }
 
   return (
@@ -580,8 +577,7 @@ function ProgrammeRow({
             onChange={(nextMachine) => {
               setMachine(nextMachine);
               setResetToken((token) => token + 1);
-              setVracInput("");
-              setVracManuel(false);
+              onEtat({ machineId: nextMachine.machineId, articleId: null, vracInput: "", vracManuel: false });
               handleUpdate({
                 machineId: nextMachine.machineId,
                 chaine: nextMachine.chaine,
@@ -602,8 +598,9 @@ function ProgrammeRow({
         key={resetToken}
         articles={articles}
         machineTypeProduit={machine.typeProduit}
-        selectedArticle={articleForMax}
-        vracInput={vracInput}
+        selectedArticle={articleChoisi}
+        quantites={quantites}
+        batchs={batchs}
         onSelectArticle={handleSelectArticle}
         onVracChange={handleVracChange}
       />
@@ -615,9 +612,9 @@ function ProgrammeRow({
         onUpdate={handleUpdate}
       />
       <MaxPossibleCell
-        article={articleForMax}
+        article={articleChoisi}
         machineConditionnementId={machine.machineId}
-        machineFabricationId={machineFabricationIdForMax}
+        machineFabricationId={etat.machineFabricationId}
         capacites={machineCapacites}
       />
       <td className="px-4 py-3">
@@ -786,12 +783,60 @@ export function ProgrammeLigneTable({
     rowsRef.current[key] = { ...rowsRef.current[key], ...partial };
   }
 
+  // Etat des quantites par ligne. Une ligne qui n'a pas encore ete touchee part du programme de
+  // l'historique charge (le vrac d'un programme enregistre compte comme saisi a la main) ou de la grille vide.
+  const [etats, setEtats] = useState<Record<string, EtatLigne>>({});
+
+  function etatInitial(key: string, row: LigneRow): EtatLigne {
+    const prefill = prefillByKey.map.get(key);
+    const vracPrefill = prefill?.vrac_a_fabriquer != null ? String(prefill.vrac_a_fabriquer) : "";
+    return {
+      machineId: row.machineId,
+      articleId: prefill?.article_id ?? null,
+      vracInput: vracPrefill,
+      vracManuel: vracPrefill !== "",
+      machineFabricationId: prefill?.machine_fabrication_id ?? null,
+    };
+  }
+
+  function changerEtat(key: string, row: LigneRow, partial: Partial<EtatLigne>) {
+    setEtats((current) => ({ ...current, [key]: { ...(current[key] ?? etatInitial(key, row)), ...partial } }));
+  }
+
+  // Quantites de TOUTES les lignes affichees, calculees ensemble : les articles d'une meme chaine se
+  // partagent ses 8 h (voir repartirJournee, lib/programme-auto-quantites.ts)
+  const articleParId = useMemo(() => new Map(articles.map((article) => [article.id, article])), [articles]);
+  const entreesRepartition: EntreeRepartition[] = [];
+  zoneGroups.forEach((group, groupIndex) => {
+    group.forEach((row, rowIndex) => {
+      const groupKey = `${groupIndex}-${rowIndex}`;
+      for (let subIndex = 0; subIndex < getSubRowCount(groupKey); subIndex++) {
+        const key = `${groupKey}-${subIndex}`;
+        const etat = etats[key] ?? etatInitial(key, row);
+        entreesRepartition.push({
+          key,
+          machineConditionnementId: etat.machineId,
+          article: etat.articleId != null ? articleParId.get(etat.articleId) ?? null : null,
+          vracInput: etat.vracInput,
+          vracManuel: etat.vracManuel,
+          machineFabricationId: etat.machineFabricationId,
+        });
+      }
+    });
+  });
+  const quantitesParLigne = repartirJournee(entreesRepartition, capacitesByMachineArticle);
+
   function addSubRow(groupKey: string) {
     setSubRowCounts((current) => ({ ...current, [groupKey]: getSubRowCount(groupKey) + 1 }));
   }
 
   function removeSubRow(groupKey: string, rowKey: string) {
     delete rowsRef.current[rowKey];
+    setEtats((current) => {
+      const suite = { ...current };
+      delete suite[rowKey];
+      return suite;
+    });
     setSubRowCounts((current) => ({
       ...current,
       [groupKey]: Math.max(1, getSubRowCount(groupKey) - 1),
@@ -812,19 +857,24 @@ export function ProgrammeLigneTable({
       return;
     }
 
-    const payload = Object.values(rowsRef.current).map((row) => ({
-      zone: row.zone,
-      chaine: row.chaine,
-      machine_id: row.machineId,
-      article_id: row.articleId,
-      produit: row.produit,
-      type_article: row.typeArticle,
-      qt_carton: row.qtCarton,
-      vrac_a_fabriquer: row.vracAFabriquer,
-      plateforme: row.plateforme,
-      programe: row.programe,
-      machine_fabrication_id: row.machineFabricationId,
-    }));
+    // Qt carton et vrac enregistres = ceux affiches (repartirJournee), pas une copie ancienne : les articles
+    // d'une meme chaine se partagent ses 8 h, donc une ligne peut changer quand une autre change.
+    const payload = Object.entries(rowsRef.current).map(([key, row]) => {
+      const quantites = quantitesParLigne.get(key);
+      return {
+        zone: row.zone,
+        chaine: row.chaine,
+        machine_id: row.machineId,
+        article_id: row.articleId,
+        produit: row.produit,
+        type_article: row.typeArticle,
+        qt_carton: quantites ? quantites.qtCarton : row.qtCarton,
+        vrac_a_fabriquer: quantites ? quantites.vrac : row.vracAFabriquer,
+        plateforme: row.plateforme,
+        programe: row.programe,
+        machine_fabrication_id: row.machineFabricationId,
+      };
+    });
 
     const formData = new FormData();
     formData.set("payload", JSON.stringify(payload));
@@ -844,6 +894,7 @@ export function ProgrammeLigneTable({
         setMessage(`Enregistre sous le code ${result.code}.`);
         setDispatchWarnings(result.warnings);
         rowsRef.current = {};
+        setEtats({});
         setSubRowCounts({});
         setResetKey((current) => current + 1);
         // Dispatch redirige vers Ravitailleur, la ou le programme vient d'etre
@@ -989,9 +1040,6 @@ export function ProgrammeLigneTable({
                   ensureRow(key, row);
                   const isLast = subIndex === subRowCount - 1;
                   const prefill = prefillByKey.map.get(key);
-                  const prefillArticle = prefill?.article_id
-                    ? articles.find((article) => article.id === prefill.article_id) ?? null
-                    : null;
 
                   return (
                     <ProgrammeRow
@@ -1003,10 +1051,11 @@ export function ProgrammeLigneTable({
                       articles={articles}
                       fabricationMachines={fabricationMachines}
                       machineCapacites={capacitesByMachineArticle}
-                      prefillArticle={prefillArticle}
-                      prefillVracInput={
-                        prefill?.vrac_a_fabriquer != null ? String(prefill.vrac_a_fabriquer) : undefined
+                      etat={etats[key] ?? etatInitial(key, row)}
+                      quantites={
+                        quantitesParLigne.get(key) ?? { vracInput: "", vrac: null, qtCarton: null, minutes: null }
                       }
+                      onEtat={(partial) => changerEtat(key, row, partial)}
                       prefillTypeArticle={prefill?.type_article}
                       prefillMachineFabricationId={prefill?.machine_fabrication_id}
                       prefillPlateforme={prefill?.plateforme}
