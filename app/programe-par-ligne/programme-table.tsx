@@ -9,7 +9,9 @@ import {
   capaciteBatch,
   computeMaxPossible,
   formatHeures,
+  limitesBatch,
   repartirJournee,
+  verifierQuantiteFabrication,
   type EntreeRepartition,
   type QuantitesLigne,
 } from "@/lib/programme-auto-quantites";
@@ -299,11 +301,14 @@ function MachineFabricationSelect({
   fabricationMachines,
   typeArticle,
   value,
+  alerte,
   onChange,
 }: {
   fabricationMachines: FabricationMachineOption[];
   typeArticle: string;
   value: number | null;
+  // Message quand cette machine ne peut pas fabriquer la quantite : le selecteur passe en rouge
+  alerte: string | null;
   onChange: (machineId: number | null, categorie: string | null) => void;
 }) {
   // Sans article choisi : toutes les machines. Avec un type choisi : SEULES
@@ -321,7 +326,10 @@ function MachineFabricationSelect({
         const nextMachine = fabricationMachines.find((m) => m.id === nextId) ?? null;
         onChange(nextId, nextMachine?.categorie ?? null);
       }}
-      className="w-40 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
+      title={alerte ?? undefined}
+      className={`w-40 rounded-xl border px-3 py-2 text-sm outline-none ${
+        alerte ? "border-red-500 bg-red-50 font-semibold text-red-700" : "border-slate-200"
+      }`}
     >
       <option value="">Choisir...</option>
       {options.map((machine) => (
@@ -342,12 +350,14 @@ function MachineFabricationAndPlateformeCells({
   typeArticle,
   initialMachineFabricationId,
   initialPlateforme,
+  alerte,
   onUpdate,
 }: {
   fabricationMachines: FabricationMachineOption[];
   typeArticle: string;
   initialMachineFabricationId?: number | null;
   initialPlateforme?: string | null;
+  alerte: string | null;
   onUpdate: (partial: { machineFabricationId?: number | null; plateforme?: string }) => void;
 }) {
   const [machineFabricationId, setMachineFabricationId] = useState<number | null>(
@@ -362,6 +372,7 @@ function MachineFabricationAndPlateformeCells({
           fabricationMachines={fabricationMachines}
           typeArticle={typeArticle}
           value={machineFabricationId}
+          alerte={alerte}
           onChange={(nextId, nextCategorie) => {
             setMachineFabricationId(nextId);
             setCategorie(nextCategorie);
@@ -457,6 +468,7 @@ function LigneRowCells({
   selectedArticle,
   quantites,
   batchs,
+  alerte,
   onSelectArticle,
   onVracChange,
 }: {
@@ -470,6 +482,8 @@ function LigneRowCells({
   quantites: QuantitesLigne;
   // Nombre de batchs du vrac sur la machine Fabrication choisie (Max = taille d'un batch)
   batchs: { nombre: number; max: number } | null;
+  // Message en rouge quand la machine Fabrication choisie ne peut pas fabriquer cette quantite (hors Min / Max)
+  alerte: string | null;
   onSelectArticle: (article: ArticleOption | null) => void;
   onVracChange: (next: string) => void;
 }) {
@@ -499,8 +513,11 @@ function LigneRowCells({
           onChange={(event) => onVracChange(event.target.value)}
           placeholder="Ex: 3000"
           title="Rempli automatiquement avec ce que la chaine peut produire en 8 h (les articles d'une meme chaine se partagent les 8 h). Tu peux le changer : la Qt carton suit et les autres articles de la chaine se recalculent."
-          className="w-28 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
+          className={`w-28 rounded-xl border px-3 py-2 text-sm outline-none ${
+            alerte ? "border-red-500 bg-red-50 font-semibold text-red-700" : "border-slate-200"
+          }`}
         />
+        {alerte ? <p className="mt-1 max-w-[14rem] text-[11px] font-semibold text-red-600">{alerte}</p> : null}
         {minutes != null ? <p className="mt-1 text-[11px] text-slate-500">{formatHeures(minutes)} de chaine</p> : null}
         {batchs ? (
           <p className="text-[11px] text-slate-500">
@@ -581,6 +598,12 @@ function ProgrammeRow({
     maxBatch && quantites.vrac && quantites.vrac > 0
       ? { nombre: Math.ceil(quantites.vrac / maxBatch - TOLERANCE_CARTON), max: maxBatch }
       : null;
+  // La machine Fabrication choisie ne peut pas fabriquer cette quantite (hors Min / Max d'un batch) : le vrac et
+  // la machine passent en rouge avec le message
+  const alerteFabrication = verifierQuantiteFabrication(
+    quantites.vrac,
+    limitesBatch(articleChoisi, etat.machineFabricationId, machineCapacites)
+  );
 
   function handleSelectArticle(article: ArticleOption | null) {
     // Qt carton et Vrac sont recalcules par le tableau (capacite de la chaine partagee entre ses articles)
@@ -640,6 +663,7 @@ function ProgrammeRow({
         selectedArticle={articleChoisi}
         quantites={quantites}
         batchs={batchs}
+        alerte={alerteFabrication}
         onSelectArticle={handleSelectArticle}
         onVracChange={handleVracChange}
       />
@@ -648,6 +672,7 @@ function ProgrammeRow({
         typeArticle={typeArticle}
         initialMachineFabricationId={prefillMachineFabricationId}
         initialPlateforme={prefillPlateforme}
+        alerte={alerteFabrication}
         onUpdate={handleUpdate}
       />
       <MaxPossibleCell

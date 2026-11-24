@@ -114,6 +114,44 @@ export function capaciteBatch(
   return capa?.capaciteMax && capa.capaciteMax > 0 ? capa.capaciteMax : null;
 }
 
+// Min et Max (en kg de vrac) d'un batch sur la machine de Fabrication choisie, null si la machine n'a aucun des
+// deux pour ce produit.
+export function limitesBatch(
+  article: ArticleQuantites | null,
+  machineFabricationId: number | null,
+  capacites: Map<string, MachineCapacite>
+): { min: number | null; max: number | null } | null {
+  if (!article || machineFabricationId == null) return null;
+  const capa = findCapaciteFabrication(capacites, machineFabricationId, article.vracArticleId, article.id);
+  const min = capa?.capaciteMin && capa.capaciteMin > 0 ? capa.capaciteMin : null;
+  const max = capa?.capaciteMax && capa.capaciteMax > 0 ? capa.capaciteMax : null;
+  return min === null && max === null ? null : { min, max };
+}
+
+// Message d'alerte quand la machine de Fabrication ne peut pas fabriquer cette quantite de vrac, sinon null :
+// - moins que le Min d'un batch (ex : 345,6 kg avec un minimum de 1 000 kg) ;
+// - plus que le Max, mais aucun nombre de batchs entre Min et Max ne donne cette quantite (ex : min 2 500,
+//   max 3 000, vrac 3 100 : 1 batch est trop grand, 2 batchs trop petits).
+export function verifierQuantiteFabrication(
+  vrac: number | null,
+  limites: { min: number | null; max: number | null } | null
+): string | null {
+  if (!limites || !vrac || !(vrac > 0)) return null;
+  const { min, max } = limites;
+  const kg = (valeur: number) => `${valeur.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} kg`;
+
+  if (min !== null && vrac < min - TOLERANCE_CARTON) {
+    return `Cette machine ne peut pas fabriquer ${kg(vrac)} : minimum ${kg(min)} par batch.`;
+  }
+  if (min !== null && max !== null) {
+    const batchs = Math.max(1, Math.ceil(vrac / max - TOLERANCE_CARTON));
+    if (batchs * min > vrac + TOLERANCE_CARTON) {
+      return `Cette machine ne peut pas fabriquer ${kg(vrac)} : ${batchs} batch${batchs > 1 ? "s" : ""} de ${kg(min)} a ${kg(max)} ne donnent pas cette quantite.`;
+    }
+  }
+  return null;
+}
+
 // Arrondi du vrac en batchs entiers : total / max = 3,4 -> 3 batchs, 3,5 et plus -> 4 batchs, et le vrac
 // devient batchs x max (batchs pleins) ; de meme 0,96 -> 1 batch plein (2 880 kg pour un max de 3 000 ->
 // 3 000). Un vrac qui n'atteint pas la moitie d'un batch reste tel quel (un seul batch partiel, on ne le
