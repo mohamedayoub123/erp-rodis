@@ -343,17 +343,14 @@ function renderArticleManquantInsideTableau(
   return (
     <main className="min-h-screen bg-[#f4f6f8] px-4 py-6 text-slate-900 lg:px-6">
       <div className="mx-auto w-full space-y-5">
-        {/* Carte d'en-tete : w-fit = elle prend seulement la largeur de la rangee de boutons (titre au-dessus des boutons) au lieu de toute la largeur de l'ecran */}
+        {/* Carte d'en-tete : w-fit = elle prend seulement la largeur de son contenu (au lieu de toute la largeur de l'ecran) ; les boutons sont a cote du titre, sur la meme ligne (sous le titre seulement sur petit ecran) */}
         <section className="w-fit max-w-full rounded-[1.75rem] border border-slate-200 bg-white px-6 py-5 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-8">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#b95b16]">
                 ERP Rodis
               </p>
               <h1 className="mt-1 text-3xl font-medium tracking-tight">Tableau de commande</h1>
-              <p className="mt-2 text-sm text-slate-600">
-                Recap de toutes les gammes avec tous les articles, reste negatif surligne en jaune.
-              </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
