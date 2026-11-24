@@ -29,8 +29,8 @@ export function AddProduitForm({
     });
   }, [value, articles]);
 
-  // Fabrication raisonne en min/max de vrac PAR HEURE (cadence horaire,
-  // multipliee par la duree prevue dans Programme) + temps de fabrication.
+  // Fabrication : Min et Max sont des QUANTITES de vrac (pas un temps), le
+  // temps de fabrication est le champ separe "Temps (minutes)".
   // Emballage et Conditionnement raisonnent en cadence (capacite, en
   // piece/min pour Conditionnement) - pas de min/max ni de temps, non
   // pertinents pour une cadence.
@@ -90,13 +90,13 @@ export function AddProduitForm({
           <input
             type="number"
             name="capacite_min"
-            placeholder="Min (par heure)"
+            placeholder="Min (quantite)"
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
           />
           <input
             type="number"
             name="capacite_max"
-            placeholder="Max (par heure)"
+            placeholder="Max (quantite)"
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
           />
           <input
