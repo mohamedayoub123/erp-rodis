@@ -877,6 +877,14 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     adminGroup: "Rapport",
   },
   {
+    key: "productionRapportPertesVrac",
+    module: "Production",
+    label: "Rapport Pertes de vrac",
+    pathPrefixes: ["/production/rapport/pertes-vrac"],
+    hasWrite: false,
+    adminGroup: "Rapport",
+  },
+  {
     key: "productionRapportHeuresSup",
     module: "Production",
     label: "Rapport Heures Supplementaires",

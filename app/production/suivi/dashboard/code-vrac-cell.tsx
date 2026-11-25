@@ -15,6 +15,12 @@ function formater(valeur: number): string {
   return valeur.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 }
 
+// "2026-11-30" -> "30/11"
+function jourMois(jour: string): string {
+  const [, mois, jourDuMois] = jour.split("-");
+  return `${jourDuMois}/${mois}`;
+}
+
 // Colonne "N Lot" du Conditionnement (Dashboard) : vide au depart ; on choisit le ou les codes VRAC conditionnes sur cette ligne, SANS taper de
 // quantite : le vrac consomme se calcule avec les cartons produits (cartons x contenance x pieces par carton), il se decompte tout seul du code
 // et ne depasse jamais le vrac fabrique. Les codes proposes sont ceux du vrac de l'article dont la Fabrication est deja entree (liste chargee a
@@ -159,7 +165,7 @@ export function CodeVracCell({
           />
           <datalist id={idListe}>
             {(liste ?? []).map((c) => (
-              <option key={c.code} value={c.code} label={`${formater(c.disponible)} kg disponibles${c.clos ? " (termine)" : ""}`} />
+              <option key={c.code} value={c.code} label={`${formater(c.disponible)} kg disponibles${c.clos ? " (termine" + (c.perteLe ? ", perdu le " + jourMois(c.perteLe) : "") + ")" : ""}`} />
             ))}
           </datalist>
           {vracNom ? <span className="text-[11px] text-slate-500">Vrac : {vracNom}</span> : null}

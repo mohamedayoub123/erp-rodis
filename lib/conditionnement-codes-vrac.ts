@@ -1,5 +1,6 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { calculerConsommationVrac, type DemandeLigneCode } from "@/lib/vrac-consommation";
+import { aujourdhuiIso, calculerClotures, datePerteDe, resteEstPerdu, type MarqueTermine } from "@/lib/vrac-perte";
 
 // Dashboard > Conditionnement : la colonne N Lot est vide au depart, la personne choisit le ou les CODES VRAC qu'elle conditionne sur la
 // ligne. La quantite de vrac consommee sur chaque code n'est plus tapee : elle se CALCULE avec les cartons produits (cartons x contenance x
@@ -22,6 +23,8 @@ export type CodeVracDisponible = {
   derniereDate: string | null;
   // Fin programme du Conditionnement deja faite sur ce code : il reste propose tant qu'il a du vrac (ex : changer de contenance en urgence)
   clos: boolean;
+  // Jour (AAAA-MM-JJ) ou le reste d'un code termine sera PERDU (Fin programme + 5 jours, lib/vrac-perte.ts) ; null si le code n'est pas termine
+  perteLe: string | null;
 };
 
 export type ResultatChoix =
@@ -300,13 +303,13 @@ export async function lireCodesVracPrets(ligneId: number): Promise<CodesVracPret
   let entreesVrac: { programme_ligne_id: number; code: string | null; quantite: number | string | null; date_jour: string | null }[];
   let entreesCarton: { programme_ligne_id: number; code: string | null; quantite: number | string | null }[];
   let rapports: { programme_ligne_id: number; code: string | null; utilisateur_test_labo: string | null; disposition_qualite: string | null }[];
-  let termines: { programme_ligne_id: number; code: string | null; stage: string | null }[];
+  let termines: MarqueTermine[];
   try {
     [entreesVrac, entreesCarton, rapports, termines] = await Promise.all([
       lirePar<(typeof entreesVrac)[number]>("production_vrac_entries", "id, programme_ligne_id, code, quantite, date_jour", ligneIds),
       lirePar<(typeof entreesCarton)[number]>("production_carton_entries", "id, programme_ligne_id, code, quantite", ligneIds),
       lirePar<(typeof rapports)[number]>("production_rapports", "id, programme_ligne_id, code, utilisateur_test_labo, disposition_qualite", ligneIds),
-      lirePar<(typeof termines)[number]>("production_code_termine", "id, programme_ligne_id, code, stage", ligneIds),
+      lirePar<(typeof termines)[number]>("production_code_termine", "id, programme_ligne_id, code, stage, termine_date", ligneIds),
     ]);
   } catch (erreur) {
     return { ok: false, message: erreur instanceof Error ? erreur.message : "Lecture impossible." };
@@ -387,13 +390,25 @@ export async function lireCodesVracPrets(ligneId: number): Promise<CodesVracPret
   // Un code est propose tant qu'il reste de quoi faire au moins un carton de cette ligne ET au moins 5 % de ce qui a ete fabrique : en dessous,
   // ce sont les pertes habituelles d'un lot deja conditionne (sinon des centaines de vieux codes avec quelques kg seraient proposes). Un code
   // termine (Fin programme) reste propose tant qu'il a du vrac : voir plus haut.
+  // Un code termine depuis 5 jours ou plus n'a plus de vrac a conditionner : son reste est PERDU (lib/vrac-perte.ts), il n'est plus propose
+  const clotures = calculerClotures(lignesDuVrac, termines);
+  const aujourdhui = aujourdhuiIso();
   const seuilCarton = Math.max(kgParCarton(article), 1);
   const codes: CodeVracDisponible[] = [];
   for (const [code, s] of parCode) {
     if (s.fabrique <= 0 || !s.testLabo || s.bloque) continue;
+    const dateCloture = clotures.get(code) ?? null;
+    if (dateCloture && resteEstPerdu(dateCloture, aujourdhui)) continue;
     const disponible = arrondi3(s.fabrique - (consommation.parCodeVrac.get(code)?.consomme ?? 0));
     if (disponible < seuilCarton || disponible < s.fabrique * 0.05) continue;
-    codes.push({ code, disponible, fabrique: arrondi3(s.fabrique), derniereDate: s.derniereDate, clos: codeClos(code) });
+    codes.push({
+      code,
+      disponible,
+      fabrique: arrondi3(s.fabrique),
+      derniereDate: s.derniereDate,
+      clos: codeClos(code),
+      perteLe: dateCloture ? datePerteDe(dateCloture) : null,
+    });
   }
   // Les codes en cours d'abord (du plus recent au plus ancien), puis les codes dont le Conditionnement est termine
   codes.sort(

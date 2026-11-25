@@ -69,6 +69,14 @@ const TILES = [
     description: "Par code : pieces fabriquees vs pieces jetees (dechet), et le % de dechet.",
   },
   {
+    label: "Pertes de vrac",
+    href: "/production/rapport/pertes-vrac",
+    pageKey: "productionRapportPertesVrac",
+    icon: "\u{1F4A7}",
+    description:
+      "Codes dont le reste de vrac est perdu 5 jours apres le Fin programme du Conditionnement : ceux qui perdent plus de 100 kg.",
+  },
+  {
     label: "Cout Reel (piece/gramme)",
     href: "/production/rapport/cout-reel",
     pageKey: "productionRapportCoutReel",

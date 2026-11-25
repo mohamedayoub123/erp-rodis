@@ -4,6 +4,7 @@ import { fetchAllRowsFirstPageCount } from "@/lib/fetch-all-rows-parallel";
 import { calculerConsommationVrac, cleLigneCode, type DemandeLigneCode } from "@/lib/vrac-consommation";
 import { codeEffectifEntree, kgParCarton, type ArticleInfo } from "@/lib/conditionnement-codes-vrac";
 import { SOURCE_VRAC_A_RECUPERER } from "@/lib/vrac-a-recuperer";
+import { aujourdhuiIso, calculerClotures, datePerteDe, resteEstPerdu, type MarqueTermine } from "@/lib/vrac-perte";
 
 // STOCK DE VRAC DU DEPOT B. Le vrac fabrique pour un code ENTRE dans le Depot B (article vrac du produit, numero de lot = le code) et SORT avec
 // les cartons produits (cartons x contenance x pieces par carton, plafonne au vrac fabrique : lib/vrac-consommation.ts). Le reste du code =
@@ -14,6 +15,9 @@ import { SOURCE_VRAC_A_RECUPERER } from "@/lib/vrac-a-recuperer";
 // ligne de sortie (vrac consomme par les cartons). Corriger, supprimer ou deplacer une saisie remet donc le stock juste au prochain calcul, il ne
 // peut pas se desynchroniser. Elles sont SEPAREES du module "Vrac a recuperer" (autre source) : le module et la liste "Code vrac recupere" de
 // la Fabrication ne comptent pas ces lignes (voir lireSoldesVracProduction), le vrac encore en cours de conditionnement n'est pas "a recuperer".
+//
+// PERTE : une fois le Conditionnement du code termine (Fin programme), le reste garde sa place 5 jours (lib/vrac-perte.ts) ; passe ce delai
+// une 3eme ligne, la PERTE, sort ce qui reste : le stock du code retombe a 0 et le rapport des pertes de vrac le signale au-dela de 100 kg.
 
 export const SOURCE_VRAC_PRODUCTION = "web:vrac-production";
 export const UTILISATEUR_VRAC_PRODUCTION = "Production (automatique)";
@@ -21,6 +25,8 @@ export const UTILISATEUR_VRAC_PRODUCTION = "Production (automatique)";
 // Commence par "Fabrication vrac" : la page Depot affiche alors le statut du lot (Conforme / A recuperer) comme pour tout vrac fabrique
 const NOTE_ENTREE = "Fabrication vrac - entree du vrac fabrique (recalcule automatiquement)";
 const NOTE_SORTIE = "Fabrication vrac - sortie des cartons produits (recalcule automatiquement)";
+const MARQUE_PERTE = "perte du reste";
+const NOTE_PERTE = `Fabrication vrac - ${MARQUE_PERTE} (Conditionnement termine depuis plus de 5 jours, recalcule automatiquement)`;
 const NOTE_A_RECUPERER = " A recuperer";
 
 // Un code qui n'a pas encore de lignes de stock n'en recoit que s'il lui reste du vrac a ce point (en dessous, ce sont les pertes habituelles d'un
@@ -44,7 +50,7 @@ const arrondi2 = (valeur: number) => Math.round(valeur * 100) / 100;
 
 type EntreeVrac = { programme_ligne_id: number; code: string | null; quantite: number | string | null; date_jour: string | null };
 type EntreeCarton = { programme_ligne_id: number; code: string | null; quantite: number | string | null; date_jour: string | null };
-type LigneProgramme = { id: number; article_id: number | null; numero_lot: string | null };
+type LigneProgramme = { id: number; article_id: number | null; numero_lot: string | null; produit: string | null };
 type ChoixBrut = { id: number; programme_ligne_id: number; code: string; code_vrac: string };
 
 export type DonneesVrac = {
@@ -56,14 +62,23 @@ export type DonneesVrac = {
   // Test labo "A detruire" : ce vrac ne credite jamais le stock ; "A recuperer" : il est credite avec le statut "A recuperer"
   codesADetruire: Set<string>;
   codesARecuperer: Set<string>;
+  // Fin programme du Conditionnement (marques de production_code_termine) : sert a perdre le reste 5 jours apres
+  termines: MarqueTermine[];
+  aujourdhui: string;
 };
 
 export type CibleVrac = {
   code: string;
   articleId: number;
+  produit: string | null;
   entree: number;
   sortie: number;
+  // Vrac qui reste apres les cartons, AVANT la perte
   reste: number;
+  // Part du reste deja PERDUE (Conditionnement termine depuis 5 jours ou plus) ; le stock du code = reste - perte
+  perte: number;
+  dateCloture: string | null;
+  datePerte: string | null;
   dateFabrication: string | null;
   dateSortie: string | null;
   // Derniere date ou ce code a ete fabrique ou conditionne : sert a savoir s'il est encore actif
@@ -83,10 +98,13 @@ export function calculerCiblesVrac(donnees: DonneesVrac): { cibles: CibleVrac[];
   const fabriqueParCode = new Map<string, number>();
   const dateFabricationParCode = new Map<string, string>();
   const derniereFabricationParCode = new Map<string, string>();
+  const produitParCode = new Map<string, string>();
   const articlesParCode = new Map<string, Map<number, number>>();
   for (const entree of donnees.entreesVrac) {
     const code = (entree.code ?? "").trim();
     if (!code) continue;
+    const produit = ligneParId.get(entree.programme_ligne_id)?.produit;
+    if (produit && !produitParCode.has(code)) produitParCode.set(code, produit);
     fabriqueParCode.set(code, (fabriqueParCode.get(code) ?? 0) + Number(entree.quantite ?? 0));
     const date = jour(entree.date_jour);
     if (date && (!dateFabricationParCode.has(code) || date < (dateFabricationParCode.get(code) as string))) dateFabricationParCode.set(code, date);
@@ -137,6 +155,8 @@ export function calculerCiblesVrac(donnees: DonneesVrac): { cibles: CibleVrac[];
     noterDate(cle.slice(cle.indexOf("::") + 2), cle);
   }
 
+  const clotures = calculerClotures(donnees.lignes, donnees.termines);
+
   const cibles: CibleVrac[] = [];
   const sansArticle: string[] = [];
   for (const [code, fabrique] of fabriqueParCode) {
@@ -150,12 +170,19 @@ export function calculerCiblesVrac(donnees: DonneesVrac): { cibles: CibleVrac[];
     const bilan = resultat.parCodeVrac.get(code) ?? { fabrique, consomme: 0, reste: fabrique };
     const dateSortie = dateSortieParCode.get(code) ?? null;
     const derniereFabrication = derniereFabricationParCode.get(code) ?? null;
+    // Conditionnement termine depuis 5 jours ou plus : tout ce qui reste est perdu
+    const dateCloture = clotures.get(code) ?? null;
+    const perdu = dateCloture !== null && resteEstPerdu(dateCloture, donnees.aujourdhui);
     cibles.push({
       code,
       articleId,
+      produit: produitParCode.get(code) ?? null,
       entree: arrondi3(bilan.fabrique),
       sortie: arrondi3(bilan.consomme),
       reste: arrondi3(bilan.reste),
+      perte: perdu ? arrondi3(bilan.reste) : 0,
+      dateCloture,
+      datePerte: dateCloture ? datePerteDe(dateCloture) : null,
       dateFabrication: dateFabricationParCode.get(code) ?? null,
       dateSortie,
       derniereActivite: [derniereFabrication, dateSortie].filter((d): d is string => !!d).sort().pop() ?? null,
@@ -195,11 +222,20 @@ type LigneVoulue = {
   };
 };
 
-function cleLigne(articleId: number, numeroLot: string | null, entree: boolean): string {
-  return `${articleId}|${(numeroLot ?? "").trim().toUpperCase()}|${entree ? "E" : "S"}`;
+// E = entree (vrac fabrique), S = sortie (cartons produits), P = perte du reste
+type Genre = "E" | "S" | "P";
+
+function cleLigne(articleId: number, numeroLot: string | null, genre: Genre): string {
+  return `${articleId}|${(numeroLot ?? "").trim().toUpperCase()}|${genre}`;
 }
 
-// Les lignes de stock voulues pour les cibles : par code, une entree (vrac fabrique) et, s'il y a eu des cartons, une sortie.
+function genreDeLigne(ligne: { qte_entree: number | string | null; note: string | null }): Genre {
+  if (Number(ligne.qte_entree ?? 0) > 0) return "E";
+  return (ligne.note ?? "").includes(MARQUE_PERTE) ? "P" : "S";
+}
+
+// Les lignes de stock voulues pour les cibles : par code, une entree (vrac fabrique) et, s'il y a eu des cartons, une sortie ; une 3eme ligne,
+// la perte, quand le Conditionnement est termine depuis 5 jours ou plus et qu'il reste du vrac.
 // ecritureExistante : ecriture exacte d'un code deja presente dans le Depot B (module Vrac a recuperer), pour que le stock reste groupe sous un
 // seul numero de lot.
 export function lignesVoulues(
@@ -214,7 +250,9 @@ export function lignesVoulues(
   for (const cible of cibles) {
     const cleCode = `${cible.articleId}|${cible.code.toUpperCase()}`;
     const aDejaSesLignes = codesAvecLignes.has(cleCode);
-    const assezDeReste = cible.reste >= RESTE_MIN_NOUVEAU_CODE_KG && cible.reste >= cible.entree * RESTE_MIN_NOUVEAU_CODE_RATIO;
+    // Ce qui reste APRES la perte : un code deja perdu en entier n'a plus de stock a creer
+    const stockRestant = cible.reste - cible.perte;
+    const assezDeReste = stockRestant >= RESTE_MIN_NOUVEAU_CODE_KG && stockRestant >= cible.entree * RESTE_MIN_NOUVEAU_CODE_RATIO;
     const actif = (cible.derniereActivite ?? cible.dateFabrication ?? aujourdhui) >= limiteActif;
     if (!aDejaSesLignes && !(assezDeReste && actif)) continue;
     const numeroLot = ecritureExistante.get(cleCode) ?? cible.code;
@@ -224,16 +262,23 @@ export function lignesVoulues(
     // Les quantites du stock ont 2 decimales (la base arrondit sinon, et la ligne paraitrait changee a chaque calcul)
     const entree = arrondi2(cible.entree);
     const sortie = arrondi2(cible.sortie);
+    const perte = arrondi2(cible.perte);
     if (entree > TOLERANCE) {
       voulues.push({
-        cle: cleLigne(cible.articleId, numeroLot, true),
+        cle: cleLigne(cible.articleId, numeroLot, "E"),
         ligne: { ...base, date_jour: dateFabrication, qte_entree: entree, qte_sortie: 0, note: NOTE_ENTREE.replace("Fabrication vrac", `Fabrication vrac${suffixe}`) },
       });
     }
     if (sortie > TOLERANCE) {
       voulues.push({
-        cle: cleLigne(cible.articleId, numeroLot, false),
+        cle: cleLigne(cible.articleId, numeroLot, "S"),
         ligne: { ...base, date_jour: cible.dateSortie ?? dateFabrication, qte_entree: 0, qte_sortie: sortie, note: NOTE_SORTIE.replace("Fabrication vrac", `Fabrication vrac${suffixe}`) },
+      });
+    }
+    if (perte > TOLERANCE) {
+      voulues.push({
+        cle: cleLigne(cible.articleId, numeroLot, "P"),
+        ligne: { ...base, date_jour: cible.datePerte ?? aujourdhui, qte_entree: 0, qte_sortie: perte, note: NOTE_PERTE.replace("Fabrication vrac", `Fabrication vrac${suffixe}`) },
       });
     }
   }
@@ -254,8 +299,7 @@ export type PlanSynchro = {
 export function planifierSynchro(voulues: LigneVoulue[], existantes: LigneStock[]): PlanSynchro {
   const parCle = new Map<string, LigneStock[]>();
   for (const ligne of existantes) {
-    const entree = Number(ligne.qte_entree ?? 0) > 0;
-    const cle = cleLigne(ligne.article_id, ligne.numero_lot, entree);
+    const cle = cleLigne(ligne.article_id, ligne.numero_lot, genreDeLigne(ligne));
     parCle.set(cle, [...(parCle.get(cle) ?? []), ligne]);
   }
   const plan: PlanSynchro = { aInserer: [], aSupprimer: [], remplacees: 0, inchangees: 0 };
@@ -271,7 +315,9 @@ export function planifierSynchro(voulues: LigneVoulue[], existantes: LigneStock[
       Math.abs(Number(gardee.qte_sortie ?? 0) - voulue.ligne.qte_sortie) < TOLERANCE &&
       (gardee.numero_lot ?? "") === voulue.ligne.numero_lot &&
       (gardee.note ?? "") === voulue.ligne.note &&
-      gardee.depot_id === voulue.ligne.depot_id;
+      gardee.depot_id === voulue.ligne.depot_id &&
+      // la perte garde son jour (la date de fin de Conditionnement + 5 jours) : si la fin change, la ligne change
+      (!voulue.cle.endsWith("|P") || String(gardee.date_jour ?? "").slice(0, 10) === voulue.ligne.date_jour);
     if (identique) {
       plan.inchangees++;
       continue;
@@ -325,6 +371,41 @@ export async function lireDepotBId(): Promise<number | null> {
   return (data as { id: number } | null)?.id ?? null;
 }
 
+// Tout ce que le calcul du vrac lit dans la production (partage avec le rapport des pertes de vrac) : vrac fabrique, cartons, lignes, articles,
+// choix de code vrac, Test labo bloquants, Fin programme du Conditionnement.
+export async function lireDonneesProductionVrac(): Promise<DonneesVrac> {
+  const [entreesVrac, entreesCarton, lignes, choix, rapportsBloques, termines] = await Promise.all([
+    lireToutes<EntreeVrac>("production_vrac_entries", "id, programme_ligne_id, code, quantite, date_jour"),
+    lireToutes<EntreeCarton>("production_carton_entries", "id, programme_ligne_id, code, quantite, date_jour"),
+    lireToutes<LigneProgramme>("programme_lignes", "id, article_id, numero_lot, produit"),
+    lireToutes<ChoixBrut>("conditionnement_codes_vrac", "id, programme_ligne_id, code, code_vrac").catch((erreur: Error) => {
+      // Table pas encore creee : aucun choix de code vrac, chaque ligne consomme son propre code
+      if (/does not exist|schema cache|PGRST205|42P01/i.test(erreur.message)) return [] as ChoixBrut[];
+      throw erreur;
+    }),
+    lireToutes<{ code: string | null; disposition_qualite: string | null }>("production_rapports", "id, code, disposition_qualite", (requete) =>
+      requete.in("disposition_qualite", ["a_recuperer", "a_detruire"])
+    ),
+    lireToutes<MarqueTermine>("production_code_termine", "id, programme_ligne_id, code, stage, termine_date", (requete) => requete.eq("stage", "carton")),
+  ]);
+
+  const articles = await lireParIds<ArticleInfo>(
+    "articles",
+    "id, nom_article, vrac_article_id, contenance, piece_par_carton",
+    lignes.map((l) => l.article_id).filter((id): id is number => id !== null)
+  );
+
+  const codesADetruire = new Set<string>();
+  const codesARecuperer = new Set<string>();
+  for (const rapport of rapportsBloques) {
+    const code = (rapport.code ?? "").trim();
+    if (!code) continue;
+    (rapport.disposition_qualite === "a_detruire" ? codesADetruire : codesARecuperer).add(code);
+  }
+
+  return { entreesVrac, entreesCarton, lignes, articles, choix, codesADetruire, codesARecuperer, termines, aujourdhui: aujourdhuiIso() };
+}
+
 export type ResumeSynchro = {
   appliquee: boolean;
   raison: string | null;
@@ -357,18 +438,8 @@ export async function synchroniserVracDepotB(options?: { limiteChangements?: num
   const depotBId = await lireDepotBId();
   if (!depotBId) return vide("Depot B introuvable.");
 
-  const [entreesVrac, entreesCarton, lignes, choixLus, rapportsBloques, existantes, lotsModule] = await Promise.all([
-    lireToutes<EntreeVrac>("production_vrac_entries", "id, programme_ligne_id, code, quantite, date_jour"),
-    lireToutes<EntreeCarton>("production_carton_entries", "id, programme_ligne_id, code, quantite, date_jour"),
-    lireToutes<LigneProgramme>("programme_lignes", "id, article_id, numero_lot"),
-    lireToutes<ChoixBrut>("conditionnement_codes_vrac", "id, programme_ligne_id, code, code_vrac").catch((erreur: Error) => {
-      // Table pas encore creee : aucun choix de code vrac, chaque ligne consomme son propre code
-      if (/does not exist|schema cache|PGRST205|42P01/i.test(erreur.message)) return [] as ChoixBrut[];
-      throw erreur;
-    }),
-    lireToutes<{ code: string | null; disposition_qualite: string | null }>("production_rapports", "id, code, disposition_qualite", (requete) =>
-      requete.in("disposition_qualite", ["a_recuperer", "a_detruire"])
-    ),
+  const [donnees, existantes, lotsModule] = await Promise.all([
+    lireDonneesProductionVrac(),
     lireToutes<LigneStock>(
       "lots_stock",
       "id, article_id, depot_id, date_jour, numero_lot, code_normalise, date_fabrication, qte_entree, qte_sortie, note",
@@ -379,21 +450,7 @@ export async function synchroniserVracDepotB(options?: { limiteChangements?: num
     ),
   ]);
 
-  const articles = await lireParIds<ArticleInfo>(
-    "articles",
-    "id, nom_article, vrac_article_id, contenance, piece_par_carton",
-    lignes.map((l) => l.article_id).filter((id): id is number => id !== null)
-  );
-
-  const codesADetruire = new Set<string>();
-  const codesARecuperer = new Set<string>();
-  for (const rapport of rapportsBloques) {
-    const code = (rapport.code ?? "").trim();
-    if (!code) continue;
-    (rapport.disposition_qualite === "a_detruire" ? codesADetruire : codesARecuperer).add(code);
-  }
-
-  const { cibles, sansArticle } = calculerCiblesVrac({ entreesVrac, entreesCarton, lignes, articles, choix: choixLus, codesADetruire, codesARecuperer });
+  const { cibles, sansArticle } = calculerCiblesVrac(donnees);
 
   const ecritureExistante = new Map<string, string>();
   for (const lot of lotsModule) {
@@ -402,7 +459,7 @@ export async function synchroniserVracDepotB(options?: { limiteChangements?: num
   }
   const codesAvecLignes = new Set(existantes.map((l) => `${l.article_id}|${(l.numero_lot ?? "").trim().toUpperCase()}`));
 
-  const voulues = lignesVoulues(cibles, depotBId, new Date().toISOString().slice(0, 10), ecritureExistante, codesAvecLignes);
+  const voulues = lignesVoulues(cibles, depotBId, donnees.aujourdhui, ecritureExistante, codesAvecLignes);
   const plan = planifierSynchro(voulues, existantes);
   // Une ligne remplacee compte pour UN changement (une nouvelle ligne + le retrait de l'ancienne)
   const changements = plan.aInserer.length + plan.aSupprimer.length - plan.remplacees;
