@@ -6,7 +6,6 @@ import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { fetchAgregatsMpParArticle } from "@/lib/mp-agregats";
-import { calculerReportBesoin } from "@/lib/proposition-report";
 import { comparerCategorieEtSousFamille } from "@/lib/ordre-categories-mp";
 import {
   DELAI_LIVRAISON_MOIS,
@@ -52,9 +51,7 @@ type PropositionRow = {
   sortie_securite: number;
   objectif: number;
   detail_objectif: string;
-  // quantite reportee des mois d'avant non commandes (et le mois d'ou elle vient)
-  reporte: number;
-  reporte_de: number | null;
+  // objectif - (stock actuel + BC / import), jamais negatif : la regle seule, aucun mois d'avant n'est ajoute
   a_commander: number;
 };
 
@@ -153,10 +150,10 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
     Number.isInteger(moisParam) && moisParam >= 1 && moisParam <= 12
       ? moisParam - 1
       : moisCourant;
-  // Une commande passee en <mois choisi> arrive 4 mois plus tard : commander en decembre 2026 = livraison en avril 2027. L'annee de la
-  // commande est celle du mois choisi, ou l'annee prochaine s'il est deja passe.
+  // Une commande passee en <mois choisi> arrive 4 mois plus tard : commander en decembre 2026 = livraison en avril 2027, commander en
+  // septembre 2026 = livraison en janvier 2027. Le mois choisi est toujours celui de l'annee en cours (meme s'il est deja passe).
   const anneeActuelle = new Date().getFullYear();
-  const anneeCommande = moisIdx >= moisCourant ? anneeActuelle : anneeActuelle + 1;
+  const anneeCommande = anneeActuelle;
   const moisLiv = moisLivraison(moisIdx);
   const anneeLivraison = anneeCommande + (moisIdx + DELAI_LIVRAISON_MOIS >= 12 ? 1 : 0);
   const livraisonAvecAnnee = `${MOIS_LONG[moisLiv]} ${anneeLivraison}`;
@@ -234,12 +231,8 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
       const dejaEnCommande = dejaEnCommandeByArticle.get(article.id) ?? 0;
       const consommationParMoisCalendaire = consommationByArticleAndMois.get(article.id) ?? new Array(12).fill(0);
       const objectif = objectifMois(consommationParMoisCalendaire, moisIdx);
-      // Le reste non commande des mois d'avant (a partir du mois en cours) est reporte sur le mois choisi - voir lib/proposition-report.ts
-      const report = calculerReportBesoin(
-        (mois) => objectifMois(consommationParMoisCalendaire, mois) - (stockActuel + dejaEnCommande),
-        moisCourant,
-        moisIdx
-      );
+      // A commander = la regle seule : objectif - (stock actuel + BC / import), jamais negatif. Les mois d'avant ne sont pas regardes.
+      const aCommander = Math.max(0, Math.round((objectif - (stockActuel + dejaEnCommande)) * 100) / 100);
 
       const sortieLivraison = consommationParMoisCalendaire[moisSortieLivraison];
       const sortieSecurite = moisSortieSecurite.reduce((somme, mois) => somme + consommationParMoisCalendaire[mois], 0);
@@ -261,9 +254,7 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
         sortie_securite: Math.round(sortieSecurite * 100) / 100,
         detail_objectif: detailObjectif,
         objectif,
-        reporte: report.reporte,
-        reporte_de: report.reporteDe,
-        a_commander: report.aCommander,
+        a_commander: aCommander,
       };
     })
     .filter((row) => row.a_commander > 0)
@@ -296,7 +287,6 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
     { label: `Sortie ${sortieLivraisonLibelle} (livraison ${livraisonAvecAnnee})`, key: "sortieLivraison" },
     { label: `+ ${SECURITE_MOIS} mois de plus (${securiteLibelle})`, key: "sortieSecurite" },
     { label: "Objectif (livraison + 2 mois)", key: "objectif" },
-    { label: "Reporte des mois d'avant (non commande)", key: "reporte" },
     { label: "A commander", key: "aCommander" },
   ];
 
@@ -311,7 +301,6 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
     sortieLivraison: row.sortie_livraison,
     sortieSecurite: row.sortie_securite,
     objectif: row.objectif,
-    reporte: row.reporte > 0 && row.reporte_de !== null ? `${row.reporte} (de ${MOIS_LONG[row.reporte_de]})` : "-",
     aCommander: row.a_commander,
   }));
 
@@ -335,9 +324,6 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
               pas apparaissent, avec la quantite a commander. Classement comme Stock Alert MP :
               famille (BASE, MP cosmetique, colorant cosmetique, article de conditionnement cosmetique, flacons verre, MP
               plastique, colorant plastique, puis les autres), puis sous famille, puis article.
-              Ce qui devait etre commande un mois d&apos;avant (a partir du mois en cours) et ne l&apos;a pas ete est
-              reporte sur le mois choisi : colonne &quot;Reporte des mois d&apos;avant&quot;. A commander = besoin du mois +
-              reporte, ce qui revient a la plus grosse quantite non commandee depuis le mois en cours.
             </p>
           </div>
 
@@ -437,10 +423,9 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
                       <span className="block text-xs font-normal text-slate-400">livraison + {SECURITE_MOIS} mois</span>
                     </th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
-                      Reporte des mois d&apos;avant
-                      <span className="block text-xs font-normal text-slate-400">pas commande</span>
+                      A commander
+                      <span className="block text-xs font-normal text-slate-400">objectif - (stock + BC / import)</span>
                     </th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">A commander</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -457,16 +442,6 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
                       <td className="px-6 py-4 font-semibold text-sky-700">{formatNumber(row.sortie_securite)}</td>
                       <td title={`${row.detail_objectif} = ${formatNumber(row.objectif)}`} className="px-6 py-4 text-slate-600">
                         {formatNumber(row.objectif)}
-                      </td>
-                      <td className="whitespace-nowrap px-6 py-4 font-semibold text-amber-700">
-                        {row.reporte > 0 && row.reporte_de !== null ? (
-                          <>
-                            +{formatNumber(row.reporte)}
-                            <span className="block text-xs font-normal text-slate-500">de {MOIS_LONG[row.reporte_de]}</span>
-                          </>
-                        ) : (
-                          <span className="font-normal text-slate-300">-</span>
-                        )}
                       </td>
                       <td className="px-6 py-4">
                         <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800">
