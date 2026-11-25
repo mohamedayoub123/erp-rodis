@@ -8,6 +8,8 @@ import {
   moyenne,
 } from "@/lib/conditionnement-par-ligne";
 import { useRestaurationBrouillon } from "@/app/_components/brouillon-formulaire";
+import { messageVracInsuffisant } from "@/lib/vrac-surplus";
+import { useSituationVrac } from "../../use-situation-vrac";
 
 // "3,5,12" -> {3, 5, 12} (numeros de casier valides seulement)
 function numerosCasiers(valeurs: string[]): Set<number> {
@@ -37,15 +39,22 @@ function formater(valeur: number) {
 // Ce que l'on voit ici n'est qu'un apercu : l'action serveur recalcule tout a l'enregistrement.
 export function ParLigneProduction({
   piecesParCarton,
+  ligneId,
+  code,
   apresCasiers,
   estAdmin = false,
 }: {
   piecesParCarton: number | null;
+  // Ligne et code de la fiche : le vrac des codes choisis est lu en arriere-plan apres l'ouverture ; si les cartons calcules depassent le vrac
+  // de plus de 15 cartons, le message de refus s'affiche tout de suite, sans attendre d'appuyer sur Enregistrer (le serveur refuse de toute facon).
+  ligneId: number;
+  code: string;
   // Admin (mayoub / ayoub) : seul a pouvoir retirer un casier verrouille (coche + point).
   estAdmin?: boolean;
   // Affiche juste apres le comptage des casiers (ex: Temps arret batch), avant Cadence et Poids.
   apresCasiers?: React.ReactNode;
 }) {
+  const situationVrac = useSituationVrac(ligneId, code);
   const [casiers, setCasiers] = useState<Set<number>>(new Set());
   // Casiers marques d'un POINT (clic long) : simple repere visuel, sans effet sur le calcul ni sur l'enregistrement.
   const [points, setPoints] = useState<Set<number>>(new Set());
@@ -138,6 +147,7 @@ export function ParLigneProduction({
     piecesParCasier: enNombre(piecesParCasier),
     piecesParCarton,
   });
+  const messageVrac = situationVrac ? messageVracInsuffisant(situationVrac, cartons) : null;
   const moyenneCadence = moyenne(cadence.map(enNombre));
   const moyennePoids = moyenne(poids.map(enNombre));
 
@@ -187,11 +197,19 @@ export function ParLigneProduction({
           </div>
           <div className="grid gap-1 text-xs font-semibold text-slate-500">
             Carton fabriquer (calcule)
-            <div className={`${CHAMP} bg-sky-50 font-bold text-sky-800`} aria-live="polite">
+            <div
+              className={`${CHAMP} font-bold ${messageVrac ? "border-red-300 bg-red-50 text-red-700" : "bg-sky-50 text-sky-800"}`}
+              aria-live="polite"
+            >
               {formater(cartons)}
             </div>
           </div>
         </div>
+        {messageVrac ? (
+          <p role="alert" className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            {messageVrac}
+          </p>
+        ) : null}
 
         <div className="flex flex-wrap gap-2" role="group" aria-label="Casiers sortis">
           {Array.from({ length: NB_CASIERS_MAX }, (_, index) => index + 1).map((numero) => {

@@ -1,5 +1,6 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { calculerConsommationVrac, type DemandeLigneCode } from "@/lib/vrac-consommation";
+import { SURPLUS_MAX_CARTONS, messageVracInsuffisant, type SituationVrac } from "@/lib/vrac-surplus";
 import { aujourdhuiIso, calculerClotures, datePerteDe, resteEstPerdu, type MarqueTermine } from "@/lib/vrac-perte";
 
 // Dashboard > Conditionnement : la colonne N Lot est vide au depart, la personne choisit le ou les CODES VRAC qu'elle conditionne sur la
@@ -421,22 +422,20 @@ export async function lireCodesVracPrets(ligneId: number): Promise<CodesVracPret
   return { ok: true, codes, vracNom, kgParCarton: kgParCarton(article) };
 }
 
-// Surplus de cartons tolere : au-dela du vrac des codes choisis, une ligne peut produire au plus ce nombre de cartons en plus (pertes, ecarts de
-// pesee). Plus que ca : la saisie est refusee, le vrac est insuffisant.
-export const SURPLUS_MAX_CARTONS = 15;
+export { SURPLUS_MAX_CARTONS };
 
-// Controle du Conditionnement : ajouter cartonsAjoutes cartons sur (ligne, code) est-il possible avec le vrac des codes choisis ? Renvoie le
-// message de refus (le vrac est insuffisant) ou null. Tient compte de TOUT ce qui est deja consomme sur ces codes (autres lignes, autres
-// fournees, ancien fonctionnement) et du surplus deja saisi sur cette ligne : le surplus total ne depasse jamais SURPLUS_MAX_CARTONS. Pas de
-// controle quand la ligne n'a pas de code vrac choisi (ancien fonctionnement) ou quand le calcul ne peut pas se faire (lecture en erreur).
-export async function messageSiVracInsuffisant(ligneId: number, code: string, cartonsAjoutes: number): Promise<string | null> {
-  if (!(cartonsAjoutes > 0) || !code) return null;
+// Situation du vrac des codes choisis par une ligne pour un code, AVANT une saisie de cartons : ce qu'il reste, le surplus deja saisi et le nombre
+// de cartons qu'on peut encore ajouter sans surplus. Sert au refus a l'enregistrement (messageSiVracInsuffisant) ET au message affiche tout de
+// suite dans les formulaires du Conditionnement (lib/vrac-surplus.ts). Tient compte de TOUT ce qui est deja consomme sur ces codes (autres lignes,
+// autres fournees, ancien fonctionnement). null = pas de controle : la ligne n'a pas de code vrac choisi (ancien fonctionnement) ou le calcul ne
+// peut pas se faire (lecture en erreur).
+export async function lireSituationVrac(ligneId: number, code: string): Promise<SituationVrac | null> {
+  if (!code) return null;
   try {
     const choixLigne = await lireChoixLigneCode(ligneId, code);
     if (!choixLigne.ok) return null;
     const choixDeLaLigne = choixLigne.parLigneCode.get(cleChoix(ligneId, code)) ?? [];
     if (choixDeLaLigne.length === 0) return null;
-
     // Tous les choix qui touchent ces codes vrac, et les autres codes vrac de ces memes lignes (une ligne a plusieurs codes les remplit dans l'ordre)
     const codesVrac = new Set(choixDeLaLigne.map((c) => c.codeVrac));
     const choixConnus = new Map<number, ChoixCodeVrac>(choixDeLaLigne.map((c) => [c.id, c]));
@@ -467,10 +466,13 @@ export async function messageSiVracInsuffisant(ligneId: number, code: string, ca
 
     // Lignes de l'ancien fonctionnement (sans choix) qui consomment leur propre code : celles dont le numero de lot contient un de ces codes
     const lignesAncien = new Map<number, { id: number; article_id: number | null; numero_lot: string | null }>();
-    for (const codeVrac of codesVrac) {
-      const { data } = await supabaseServer.from("programme_lignes").select("id, article_id, numero_lot").ilike("numero_lot", `%${codeVrac}%`);
-      for (const l of (data ?? []) as { id: number; article_id: number | null; numero_lot: string | null }[]) lignesAncien.set(l.id, l);
-    }
+    const lignesParCodeVrac = await Promise.all(
+      [...codesVrac].map(async (codeVrac) => {
+        const { data } = await supabaseServer.from("programme_lignes").select("id, article_id, numero_lot").ilike("numero_lot", `%${codeVrac}%`);
+        return (data ?? []) as { id: number; article_id: number | null; numero_lot: string | null }[];
+      })
+    );
+    for (const l of lignesParCodeVrac.flat()) lignesAncien.set(l.id, l);
     const ligneIds = [...new Set([ligneId, ...tousLesChoix.map((c) => c.ligneId), ...lignesAncien.keys()])];
 
     const [lignes, entreesCarton, entreesVrac] = await Promise.all([
@@ -517,25 +519,37 @@ export async function messageSiVracInsuffisant(ligneId: number, code: string, ca
 
     const avantSaisie = calculerConsommationVrac({ choix: choixMoteur, demandes: [...demandes.values()], fabriqueParCodeVrac });
     const cleCible = cleChoix(ligneId, code);
-    const avecSaisie = new Map(demandes);
-    const demandeCible = demandes.get(cleCible) ?? { ligneId, code, cartons: 0, kgParCarton: kgParCartonLigne };
-    avecSaisie.set(cleCible, { ...demandeCible, cartons: demandeCible.cartons + cartonsAjoutes });
-    const apresSaisie = calculerConsommationVrac({ choix: choixMoteur, demandes: [...avecSaisie.values()], fabriqueParCodeVrac });
+    const surplusDejaKg = avantSaisie.exces.get(cleCible) ?? 0;
 
-    const surplusCartons = (apresSaisie.exces.get(cleCible) ?? 0) / kgParCartonLigne;
-    if (surplusCartons <= SURPLUS_MAX_CARTONS + 1e-6) return null;
+    // Cartons qu'on peut encore ajouter sans surplus : on ajoute un nombre enorme de cartons, tout ce qui depasse devient du surplus, donc
+    // capacite = surplus deja la + cartons ajoutes - surplus apres. Au-dela de cette capacite le surplus augmente carton pour carton.
+    const GRAND_NOMBRE_CARTONS = 1000000;
+    const avecGrandNombre = new Map(demandes);
+    const demandeCible = demandes.get(cleCible) ?? { ligneId, code, cartons: 0, kgParCarton: kgParCartonLigne };
+    avecGrandNombre.set(cleCible, { ...demandeCible, cartons: demandeCible.cartons + GRAND_NOMBRE_CARTONS });
+    const apresGrandNombre = calculerConsommationVrac({ choix: choixMoteur, demandes: [...avecGrandNombre.values()], fabriqueParCodeVrac });
+    const capaciteKg = Math.max(0, surplusDejaKg + GRAND_NOMBRE_CARTONS * kgParCartonLigne - (apresGrandNombre.exces.get(cleCible) ?? 0));
 
     const codesDeLaLigne = [...new Set(choixDeLaLigne.map((c) => c.codeVrac))];
-    const resteKg = codesDeLaLigne.reduce((somme, codeVrac) => somme + (avantSaisie.parCodeVrac.get(codeVrac)?.reste ?? 0), 0);
-    const cartonsPossibles = Math.max(0, Math.floor(resteKg / kgParCartonLigne + 1e-9));
-    const formater = (valeur: number) => valeur.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
-    return (
-      `Pas possible avec ce vrac : le vrac est insuffisant. Il reste ${formater(resteKg)} kg sur ${codesDeLaLigne.join(", ")} (environ ${formater(cartonsPossibles)} cartons) ` +
-      `et tu veux ajouter ${formater(cartonsAjoutes)} cartons : au-dela du vrac, le surplus maximum est de ${SURPLUS_MAX_CARTONS} cartons (ici ${formater(Math.round(surplusCartons * 100) / 100)}).`
-    );
+    return {
+      kgParCarton: kgParCartonLigne,
+      resteKg: codesDeLaLigne.reduce((somme, codeVrac) => somme + (avantSaisie.parCodeVrac.get(codeVrac)?.reste ?? 0), 0),
+      surplusDejaCartons: surplusDejaKg / kgParCartonLigne,
+      capaciteCartons: capaciteKg / kgParCartonLigne,
+      codes: codesDeLaLigne,
+    };
   } catch {
     return null;
   }
+}
+
+// Controle du Conditionnement : ajouter cartonsAjoutes cartons sur (ligne, code) est-il possible avec le vrac des codes choisis ? Renvoie le
+// message de refus (le vrac est insuffisant) ou null : le surplus total de la ligne ne depasse jamais SURPLUS_MAX_CARTONS. Pas de controle
+// quand la ligne n'a pas de code vrac choisi (ancien fonctionnement) ou quand le calcul ne peut pas se faire (lecture en erreur).
+export async function messageSiVracInsuffisant(ligneId: number, code: string, cartonsAjoutes: number): Promise<string | null> {
+  if (!(cartonsAjoutes > 0) || !code) return null;
+  const situation = await lireSituationVrac(ligneId, code);
+  return situation ? messageVracInsuffisant(situation, cartonsAjoutes) : null;
 }
 
 // Pour le controle du Conditionnement : parmi ces codes vrac, lesquels sont maintenant marques "A recuperer" / "A detruire" au Test labo

@@ -10,6 +10,7 @@ import { formatDate } from "../../../suivi/data";
 import { saveConditionnementRapportAction, messageSiConditionnementInvalide } from "../../actions";
 import { fetchConditionnementZoneChaineOptions } from "@/lib/machines-conditionnement";
 import { fetchInfosArticleLigne, fetchModesSaisieConditionnement } from "@/lib/conditionnement-modes";
+import { AlerteSurplusVrac } from "../alerte-surplus-vrac";
 import { ModeSaisieSwitch } from "../mode-switch";
 import { DatesFabricationPeremption } from "../dates-fabrication-peremption";
 import { LigneZoneChaineEditor } from "./zone-chaine-editor";
@@ -401,6 +402,12 @@ export default async function RapportConditionnementPage({
                     />
                   </label>
                 </div>
+                <AlerteSurplusVrac
+                  ligneId={ligne.id}
+                  code={code}
+                  nomChamp="qt_fabriquer"
+                  quantiteInitiale={derniereFournee?.id ? Number(derniereFournee.qt_fabriquer ?? 0) : null}
+                />
               </div>
 
               <div>

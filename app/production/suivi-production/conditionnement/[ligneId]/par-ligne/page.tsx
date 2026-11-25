@@ -284,6 +284,8 @@ export default async function ConditionnementParLignePage({
                 </p>
                 <ParLigneProduction
                   piecesParCarton={piecesParCarton}
+                  ligneId={ligne.id}
+                  code={code}
                   estAdmin={isAdminUser(currentStockUser)}
                   apresCasiers={
                     <div className="grid gap-4 md:grid-cols-3">
