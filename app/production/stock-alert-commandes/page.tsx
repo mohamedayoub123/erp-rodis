@@ -363,7 +363,7 @@ export default async function StockAlertCommandesPage({ searchParams }: { search
         {
           details: alerte.commandes.map((commande) => ({
             code: commande.code,
-            reste: ` - ${commande.quantite}${commande.dateCommande ? ` - commande du ${formatDate(commande.dateCommande)}` : " - date de commande non renseignee"}`,
+            reste: ` - 4D: ${commande.nDoss4d || "-"} - ${commande.quantite}${commande.dateCommande ? ` - commande du ${formatDate(commande.dateCommande)}` : " - date de commande non renseignee"}`,
           })),
         },
         {
@@ -618,6 +618,7 @@ export default async function StockAlertCommandesPage({ searchParams }: { search
                             commandeTotal={alerte.commandeTotal}
                             imports={alerte.imports}
                             importTotal={alerte.importTotal}
+                            afficherDossier4d
                           />
                           <td
                             className={`px-4 py-3 text-right font-semibold tabular-nums ${

@@ -15,11 +15,14 @@ export function CellulesArrivagesMp({
   commandeTotal,
   imports,
   importTotal,
+  afficherDossier4d = false,
 }: {
   commandes: CommandeEnCours[];
   commandeTotal: number;
   imports: ImportEnCours[];
   importTotal: number;
+  // Stock Alert MP par commande : le numero de dossier 4D du BC s'affiche juste apres le code BC ("BC123 - 4D: 2611 - 500 - commande du ...")
+  afficherDossier4d?: boolean;
 }) {
   return (
     <>
@@ -35,6 +38,7 @@ export function CellulesArrivagesMp({
                   <Link href={`/stock/matiere-premiere/bc/${commande.code}`} className="font-semibold text-sky-700 underline">
                     {commande.code}
                   </Link>{" "}
+                  {afficherDossier4d ? `- 4D: ${commande.nDoss4d || "-"} ` : null}
                   - {nombre(commande.quantite)}
                   {commande.dateCommande ? ` - commande du ${formatDate(commande.dateCommande)}` : " - date de commande non renseignee"}
                 </li>
