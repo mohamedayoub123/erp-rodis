@@ -40,6 +40,7 @@ export const LIMITE_CHANGEMENTS_AUTOMATIQUE = 150;
 
 const TOLERANCE = 0.0005;
 const arrondi3 = (valeur: number) => Math.round(valeur * 1000) / 1000;
+const arrondi2 = (valeur: number) => Math.round(valeur * 100) / 100;
 
 type EntreeVrac = { programme_ligne_id: number; code: string | null; quantite: number | string | null; date_jour: string | null };
 type EntreeCarton = { programme_ligne_id: number; code: string | null; quantite: number | string | null; date_jour: string | null };
@@ -220,16 +221,19 @@ export function lignesVoulues(
     const dateFabrication = cible.dateFabrication ?? aujourdhui;
     const suffixe = cible.aRecuperer ? NOTE_A_RECUPERER : "";
     const base = { depot_id: depotBId, article_id: cible.articleId, numero_lot: numeroLot, code_normalise: numeroLot.toUpperCase(), date_fabrication: dateFabrication, source_import: SOURCE_VRAC_PRODUCTION, utilisateur: UTILISATEUR_VRAC_PRODUCTION };
-    if (cible.entree > TOLERANCE) {
+    // Les quantites du stock ont 2 decimales (la base arrondit sinon, et la ligne paraitrait changee a chaque calcul)
+    const entree = arrondi2(cible.entree);
+    const sortie = arrondi2(cible.sortie);
+    if (entree > TOLERANCE) {
       voulues.push({
         cle: cleLigne(cible.articleId, numeroLot, true),
-        ligne: { ...base, date_jour: dateFabrication, qte_entree: cible.entree, qte_sortie: 0, note: NOTE_ENTREE.replace("Fabrication vrac", `Fabrication vrac${suffixe}`) },
+        ligne: { ...base, date_jour: dateFabrication, qte_entree: entree, qte_sortie: 0, note: NOTE_ENTREE.replace("Fabrication vrac", `Fabrication vrac${suffixe}`) },
       });
     }
-    if (cible.sortie > TOLERANCE) {
+    if (sortie > TOLERANCE) {
       voulues.push({
         cle: cleLigne(cible.articleId, numeroLot, false),
-        ligne: { ...base, date_jour: cible.dateSortie ?? dateFabrication, qte_entree: 0, qte_sortie: cible.sortie, note: NOTE_SORTIE.replace("Fabrication vrac", `Fabrication vrac${suffixe}`) },
+        ligne: { ...base, date_jour: cible.dateSortie ?? dateFabrication, qte_entree: 0, qte_sortie: sortie, note: NOTE_SORTIE.replace("Fabrication vrac", `Fabrication vrac${suffixe}`) },
       });
     }
   }
