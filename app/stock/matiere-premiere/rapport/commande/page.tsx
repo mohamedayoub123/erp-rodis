@@ -6,7 +6,7 @@ import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { fetchAgregatsMpParArticle } from "@/lib/mp-agregats";
-import { CYCLE_COMMANDE_MOIS, DELAI_LIVRAISON_MOIS, DUREE_OBJECTIF_MOIS, objectifGlissant } from "@/lib/delai-commande-mp";
+import { DELAI_LIVRAISON_MOIS, DUREE_OBJECTIF_MOIS, MOIS_A_COUVRIR, SECURITE_MOIS, objectifGlissant } from "@/lib/delai-commande-mp";
 import { VoirToutBanner } from "@/app/_components/voir-tout-banner";
 
 type ArticleMpRow = {
@@ -50,7 +50,7 @@ const MOIS_LONG = [
   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
 ];
 
-// Delai de livraison (4 mois entre la commande et l'arrivee en stock) + 6 mois de cycle de commande : voir lib/delai-commande-mp.ts, les
+// Delai de livraison (4 mois entre la commande et l'arrivee en stock) + le mois a couvrir + 2 mois de securite : voir lib/delai-commande-mp.ts, les
 // memes pour Besoin Commande, Proposition de Commande et Surstock.
 // commandeParMoisDepart[i] = consommation du meme mois de l'annee passee pour le mois i et les mois suivants sur toute la duree de
 // l'objectif (index 0=Janvier..11=Decembre, avec retour a Janvier apres Decembre).
@@ -198,9 +198,9 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
   // la sortie de chaque mois calendaire (Janvier, Fevrier...) sur les 12
   // derniers mois - une seule occurrence de chaque mois dans cette fenetre,
   // donc pas de moyenne a faire. La quantite a avoir en stock en entrant
-  // dans un mois donne = somme de la conso de ce mois-la et des 9 suivants
-  // (4 mois de delai de livraison + 6 mois de cycle de commande, meme
-  // rythme que le fonctionnement reel). Stock min (3 mois, deja sur
+  // dans un mois donne = somme de la conso de ce mois-la et des 6 suivants
+  // (4 mois de delai de livraison + le mois a couvrir + 2 mois de securite,
+  // voir lib/delai-commande-mp.ts). Stock min (3 mois, deja sur
   // l'article) reste affiche a cote pour comparaison.
   // Ces sommes sont calculees directement par la base (une ligne par
   // article, voir lib/mp-agregats.ts) au lieu de telecharger tous les
@@ -299,9 +299,9 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
               Pour chaque article : consommation moyenne mensuelle (sortie des 12 derniers mois /
               12), le Stock min actuel (3 mois) pour comparaison, ce qui est deja en commande/import
               et pas encore receptionne, et pour chacun des 12 mois de l&apos;annee, la quantite a
-              commander en plus (objectif {DUREE_OBJECTIF_MOIS} mois - {DELAI_LIVRAISON_MOIS} mois de delai de livraison + {CYCLE_COMMANDE_MOIS} mois de cycle de
-              commande, avec la consommation du meme mois de l&apos;annee passee - moins ce qui est deja en commande/import - la
-              consommation change selon le mois, ce n&apos;est pas juste la moyenne x {DUREE_OBJECTIF_MOIS}).
+              commander en plus (objectif {DUREE_OBJECTIF_MOIS} mois - {DELAI_LIVRAISON_MOIS} mois de delai de livraison + {MOIS_A_COUVRIR} mois a couvrir +
+              {SECURITE_MOIS} mois de securite, avec la consommation du meme mois de l&apos;annee passee - moins ce qui est deja en
+              commande/import - la consommation change selon le mois, ce n&apos;est pas juste la moyenne x {DUREE_OBJECTIF_MOIS}).
             </p>
           </div>
 
@@ -385,7 +385,7 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
                       <th
                         key={mois}
                         className="sticky top-0 z-10 bg-slate-50 px-4 py-4 text-center font-semibold"
-                        title={`A avoir en stock en entrant dans ${MOIS_LONG[idx]} (${DELAI_LIVRAISON_MOIS} mois de delai + ${CYCLE_COMMANDE_MOIS} mois de cycle = ${DUREE_OBJECTIF_MOIS} mois)`}
+                        title={`A avoir en stock en entrant dans ${MOIS_LONG[idx]} (${DELAI_LIVRAISON_MOIS} mois de delai + ${MOIS_A_COUVRIR} mois a couvrir + ${SECURITE_MOIS} mois de securite = ${DUREE_OBJECTIF_MOIS} mois)`}
                       >
                         {mois}
                       </th>

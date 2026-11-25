@@ -1,6 +1,6 @@
 // Proposition de Commande MP : ce qui devait etre commande un mois et ne l'a pas ete est REPORTE sur les mois suivants.
 //
-// Le besoin d'un mois M = objectif de M (consommation a partir de M sur delai + cycle, voir delai-commande-mp.ts) moins le stock actuel moins ce qui est deja en
+// Le besoin d'un mois M = objectif de M (consommation a partir de M sur delai + mois a couvrir + securite, voir delai-commande-mp.ts) moins le stock actuel moins ce qui est deja en
 // commande / import. Comme le stock et les commandes sont ceux d'AUJOURD'HUI, un besoin d'un mois precedent qui n'a pas ete commande
 // est toujours la : il n'a pas diminue. Mais l'objectif change d'un mois a l'autre (la consommation varie), et quand l'objectif du mois
 // suivant est plus bas, le besoin du mois d'avant disparaissait de la proposition alors qu'il n'avait pas ete commande.
