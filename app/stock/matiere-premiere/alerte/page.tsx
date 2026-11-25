@@ -9,6 +9,7 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { MultiSelectFilter } from "@/app/_components/multi-select-filter";
 import { construireQuery, correspondALaListe, lireListeParam, optionsDistinctes } from "@/lib/filtre-multiple";
 import { formatDate } from "@/lib/format-date";
+import { joursEnMoisEtJours } from "@/lib/duree-jours";
 import { encodeDossierId } from "../commande/dossier-id";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { computeStatutBc } from "../bc/constants";
@@ -516,8 +517,8 @@ export default async function StockAlerteMpPage({
       { titre: "Article", largeur: 44, style: { texte: COULEURS_EXCEL.texte, gras: true } },
       // la pastille rouge du stock
       { titre: "Stock Depot E (moins TO)", largeur: 17, style: { fond: COULEURS_EXCEL.rougeFond, texte: COULEURS_EXCEL.rougeFort, gras: true } },
-      // le stock suffit pour combien de jours (stock x 365 / consommation 12 mois), a cote du stock
-      { titre: "Jours de stock", largeur: 12, style: { texte: COULEURS_EXCEL.texte, gras: true } },
+      // le stock suffit pour combien de temps (stock x 365 / consommation 12 mois), a cote du stock, ecrit en mois et jours (40 j = 1 mois et 10 j)
+      { titre: "Couverture de stock", largeur: 20, style: { texte: COULEURS_EXCEL.texte, gras: true } },
       { titre: "Stock Depot E (avant TO)", largeur: 17, style: gris },
       { titre: "TO deduits", largeur: 12, style: gris },
       { titre: "Unite", largeur: 10, style: gris },
@@ -541,7 +542,7 @@ export default async function StockAlerteMpPage({
         // seule la case Article porte la couleur d'alerte (comme a l'ecran)
         alerte.couleur ? { valeur: alerte.nom_article, style: { fond: COULEURS_ALERTE[alerte.couleur].fondExcel } } : alerte.nom_article,
         alerte.stock_actuel,
-        alerte.jours_stock === null ? "-" : Math.round(alerte.jours_stock),
+        joursEnMoisEtJours(alerte.jours_stock),
         alerte.stock_depot_e,
         alerte.to_deduits,
         alerte.unite || "-",
@@ -673,7 +674,7 @@ export default async function StockAlerteMpPage({
                       <span className="block text-xs font-normal text-slate-400">moins les TO</span>
                     </th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
-                      Jours de stock
+                      Couverture de stock
                       <span className="block text-xs font-normal text-slate-400">selon conso 12 mois</span>
                     </th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
@@ -725,10 +726,12 @@ export default async function StockAlerteMpPage({
                         ) : null}
                       </td>
                       <td
-                        title="Stock (Depot E moins TO) x 365 / consommation des 12 derniers mois"
+                        title={`${
+                          alerte.jours_stock === null ? "" : `${formatNumber(Math.round(alerte.jours_stock))} jours - `
+                        }Stock (Depot E moins TO) x 365 / consommation des 12 derniers mois (1 mois = 30 jours)`}
                         className="whitespace-nowrap px-6 py-4 font-semibold text-slate-900"
                       >
-                        {alerte.jours_stock === null ? "-" : `${formatNumber(Math.round(alerte.jours_stock))} j`}
+                        {joursEnMoisEtJours(alerte.jours_stock)}
                       </td>
                       <td className="px-6 py-4 text-slate-600">{alerte.unite || "-"}</td>
                       <td className="px-6 py-4 font-semibold text-sky-700">
