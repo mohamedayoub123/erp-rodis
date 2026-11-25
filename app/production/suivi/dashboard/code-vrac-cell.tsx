@@ -15,10 +15,11 @@ function formater(valeur: number): string {
   return valeur.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 }
 
-// Colonne "N Lot" du Conditionnement (Dashboard) : vide au depart ; on choisit le ou les codes VRAC conditionnes sur cette ligne avec la
-// quantite de vrac (kg) prise sur chacun. Les codes proposes sont ceux du vrac de l'article dont la Fabrication est deja entree (liste
-// chargee a l'ouverture, pas dans la page) ; on peut taper pour trouver un code plus vite, un code qui n'existe pas est refuse. Le reste
-// de vrac d'un code reste disponible pour une autre ligne.
+// Colonne "N Lot" du Conditionnement (Dashboard) : vide au depart ; on choisit le ou les codes VRAC conditionnes sur cette ligne, SANS taper de
+// quantite : le vrac consomme se calcule avec les cartons produits (cartons x contenance x pieces par carton), il se decompte tout seul du code
+// et ne depasse jamais le vrac fabrique. Les codes proposes sont ceux du vrac de l'article dont la Fabrication est deja entree (liste chargee a
+// l'ouverture, pas dans la page), avec le vrac qu'il leur reste ; un code dont le Conditionnement est termine reste propose tant qu'il a du vrac
+// (marque "termine"). On peut taper pour trouver un code plus vite, un code qui n'existe pas est refuse.
 export function CodeVracCell({
   ligneId,
   code,
@@ -35,7 +36,6 @@ export function CodeVracCell({
   const [liste, setListe] = useState<CodeVracDisponible[] | null>(null);
   const [vracNom, setVracNom] = useState<string | null>(null);
   const [saisie, setSaisie] = useState("");
-  const [quantite, setQuantite] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [enCours, demarrer] = useTransition();
 
@@ -61,16 +61,12 @@ export function CodeVracCell({
   function fermer() {
     setOuvert(false);
     setSaisie("");
-    setQuantite("");
     setMessage(null);
   }
 
-  // Quand le code tape existe dans la liste, la quantite proposee = tout ce qu'il en reste (modifiable)
   function changerCode(valeur: string) {
     setSaisie(valeur);
     setMessage(null);
-    const trouve = liste?.find((c) => c.code.toLowerCase() === valeur.trim().toLowerCase());
-    if (trouve) setQuantite(String(trouve.disponible));
   }
 
   function valider() {
@@ -79,13 +75,10 @@ export function CodeVracCell({
     const trouve = liste.find((c) => c.code.toLowerCase() === codeSaisi.toLowerCase());
     if (!codeSaisi) return setMessage("Choisis un code vrac.");
     if (!trouve) return setMessage(`Le code ${codeSaisi} n'existe pas dans la liste. Choisis un code propose.`);
-    const nombre = Number(quantite.replace(",", "."));
-    if (!Number.isFinite(nombre) || nombre <= 0) return setMessage("Mets la quantite de vrac (kg) a prendre sur ce code.");
-    if (nombre > trouve.disponible + 0.0005) return setMessage(`Il ne reste que ${formater(trouve.disponible)} kg sur ${trouve.code}.`);
     setMessage(null);
     demarrer(async () => {
       try {
-        const reponse = await ajouterCodeVracConditionnementAction(ligneId, code, trouve.code, nombre);
+        const reponse = await ajouterCodeVracConditionnementAction(ligneId, code, trouve.code);
         if (!reponse.ok) {
           setMessage(reponse.message);
           return;
@@ -124,9 +117,10 @@ export function CodeVracCell({
         <span
           key={c.id}
           className="inline-flex w-fit items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-800"
-          title={`${formater(c.quantite)} kg de vrac pris sur le code ${c.codeVrac}`}
+          title={`${formater(c.quantite)} kg de vrac utilises sur le code ${c.codeVrac} (calcules avec les cartons produits)`}
         >
-          {c.codeVrac} · {formater(c.quantite)} kg
+          {c.codeVrac}
+          {c.quantite > 0.0015 ? ` · ${formater(c.quantite)} kg utilises` : ""}
           {peutModifier ? (
             <button
               type="button"
@@ -165,20 +159,17 @@ export function CodeVracCell({
           />
           <datalist id={idListe}>
             {(liste ?? []).map((c) => (
-              <option key={c.code} value={c.code} label={`${formater(c.disponible)} kg disponibles`} />
+              <option key={c.code} value={c.code} label={`${formater(c.disponible)} kg disponibles${c.clos ? " (termine)" : ""}`} />
             ))}
           </datalist>
           {vracNom ? <span className="text-[11px] text-slate-500">Vrac : {vracNom}</span> : null}
+          {saisie.trim() && liste?.find((c) => c.code.toLowerCase() === saisie.trim().toLowerCase()) ? (
+            <span className="text-[11px] text-slate-500">
+              {formater(liste.find((c) => c.code.toLowerCase() === saisie.trim().toLowerCase())!.disponible)} kg disponibles : le vrac se decompte
+              tout seul avec les cartons.
+            </span>
+          ) : null}
           <div className="flex items-center gap-1">
-            <input
-              type="number"
-              min="0"
-              step="any"
-              value={quantite}
-              onChange={(evenement) => setQuantite(evenement.target.value)}
-              placeholder="Qt vrac (kg)"
-              className="w-28 rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-800 focus:border-sky-400 focus:outline-none"
-            />
             <button
               type="button"
               onClick={valider}

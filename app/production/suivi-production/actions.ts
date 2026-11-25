@@ -8,7 +8,7 @@ import { MAX_CARTONS_FICHE_PLUS, MAX_FICHES_PLUS_PAR_CODE } from "@/lib/limites-
 import { estValideurTestLabo } from "@/lib/valideurs-test-labo";
 import { verifierNomsConditionnement } from "@/lib/noms-conditionnement";
 import { logAudit } from "@/lib/audit-log";
-import { cleChoix, codesVracBloquesParQualite, lireChoixLigneCode } from "@/lib/conditionnement-codes-vrac";
+import { cleChoix, codesVracBloquesParQualite, lireChoixLigneCode, messageSiVracInsuffisant } from "@/lib/conditionnement-codes-vrac";
 import { trouverMessageStockNegatif } from "@/lib/controle-stock-negatif";
 import { fetchVracDepotBParArticle } from "@/lib/vrac-depot-b";
 import { SOURCE_VRAC_A_RECUPERER, noteVracEnRecuperationFabrication } from "@/lib/vrac-a-recuperer";
@@ -892,6 +892,18 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     temps_arret_batch: parseOptionalText(formData, "temps_arret_batch"),
   };
 
+  // Vrac des codes choisis (Dashboard > Conditionnement) : les cartons ajoutes retirent leur vrac du code ; au-dela du vrac fabrique le surplus
+  // est limite a 15 cartons, plus que ca la saisie est refusee (le vrac est insuffisant). Pas de controle pour un doublon ignore ni pour une
+  // correction sans changement de quantite (rien n'est ajoute).
+  if (!modeCorrection && qtFabriquer && qtFabriquer > 0 && !dejaCompteIdentique) {
+    const erreurVrac = await messageSiVracInsuffisant(ligneId, code, qtFabriquer);
+    if (erreurVrac) {
+      redirect(
+        `/production/suivi-production/conditionnement/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(erreurVrac)}`
+      );
+    }
+  }
+
   const cartonInsert =
     modeCorrection && fourneeId
       ? await supabaseServer
@@ -1011,6 +1023,12 @@ export async function saveConditionnementParLigneAction(formData: FormData) {
     });
     if (qtFabriquer <= 0) {
       throw new Error("Le nombre de cartons calcule est 0 - verifie les casiers et le nombre de pieces par casier.");
+    }
+
+    // Vrac des codes choisis : surplus limite a 15 cartons au-dela du vrac fabrique, sinon la saisie est refusee (voir l'Entree simple)
+    const erreurVrac = await messageSiVracInsuffisant(ligneId, code, qtFabriquer);
+    if (erreurVrac) {
+      redirect(`${urlPage}&erreur=${encodeURIComponent(erreurVrac)}`);
     }
 
     const relevesPoids = lireReleves(formData, "poids");

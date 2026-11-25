@@ -5,7 +5,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { logAudit } from "@/lib/audit-log";
 import {
-  arrondi3,
+  QUANTITE_VRAC_IGNOREE,
   lireCodesVracPrets,
   type CodeVracDisponible,
 } from "@/lib/conditionnement-codes-vrac";
@@ -38,12 +38,10 @@ function formaterKg(valeur: number): string {
   return valeur.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 }
 
-export async function ajouterCodeVracConditionnementAction(
-  ligneId: number,
-  code: string,
-  codeVrac: string,
-  quantite: number
-): Promise<Reponse> {
+// Choix d'un code vrac pour une ligne : SEULEMENT le code (plus de quantite de vrac a taper). Le vrac consomme se calcule ensuite avec les cartons
+// produits (cartons x contenance x pieces par carton), il se decompte tout seul du code et ne depasse jamais le vrac fabrique (voir
+// lib/vrac-consommation.ts). La table impose quantite_vrac > 0 : on y ecrit QUANTITE_VRAC_IGNOREE, jamais lue.
+export async function ajouterCodeVracConditionnementAction(ligneId: number, code: string, codeVrac: string): Promise<Reponse> {
   try {
     const utilisateur = await getCurrentStockUser();
     if (!(await canWritePageUser(utilisateur, PAGE_CONDITIONNEMENT))) {
@@ -54,8 +52,6 @@ export async function ajouterCodeVracConditionnementAction(
     const codeSaisi = String(codeVrac ?? "").trim();
     if (!codeLigne) return { ok: false, message: "Ligne invalide (code manquant)." };
     if (!codeSaisi) return { ok: false, message: "Choisis un code vrac." };
-    const quantiteVrac = arrondi3(Number(quantite));
-    if (!Number.isFinite(quantiteVrac) || quantiteVrac <= 0) return { ok: false, message: "La quantite de vrac doit etre superieure a 0." };
 
     const { data: ligneData, error: ligneErreur } = await supabaseServer
       .from("programme_lignes")
@@ -80,47 +76,39 @@ export async function ajouterCodeVracConditionnementAction(
         message: `Le code ${codeSaisi} n'est pas dans la liste des codes prets${prets.vracNom ? ` de ${prets.vracNom}` : ""} (Fabrication entree, Test labo fait, du vrac encore disponible). Choisis un code de la liste.`,
       };
     }
-    if (quantiteVrac > candidat.disponible + 0.0005) {
-      return { ok: false, message: `Il ne reste que ${formaterKg(candidat.disponible)} kg de vrac sur le code ${candidat.code} (tu demandes ${formaterKg(quantiteVrac)} kg).` };
-    }
 
     const { data: existant, error: existantErreur } = await supabaseServer
       .from("conditionnement_codes_vrac")
-      .select("id, quantite_vrac")
+      .select("id")
       .eq("programme_ligne_id", ligneId)
       .eq("code", codeLigne)
       .eq("code_vrac", candidat.code)
       .maybeSingle();
     if (existantErreur) return { ok: false, message: existantErreur.message };
+    if (existant) return { ok: true, message: `${candidat.code} est deja choisi sur cette ligne.` };
 
-    const dejaChoisi = existant ? Number((existant as { quantite_vrac: number }).quantite_vrac) : 0;
-    const resultat = existant
-      ? await supabaseServer
-          .from("conditionnement_codes_vrac")
-          .update({ quantite_vrac: arrondi3(dejaChoisi + quantiteVrac) })
-          .eq("id", (existant as { id: number }).id)
-      : await supabaseServer.from("conditionnement_codes_vrac").insert({
-          programme_ligne_id: ligneId,
-          code: codeLigne,
-          code_vrac: candidat.code,
-          quantite_vrac: quantiteVrac,
-          created_by: utilisateur,
-        });
-    if (resultat.error) return { ok: false, message: resultat.error.message };
+    const { error: insertionErreur } = await supabaseServer.from("conditionnement_codes_vrac").insert({
+      programme_ligne_id: ligneId,
+      code: codeLigne,
+      code_vrac: candidat.code,
+      quantite_vrac: QUANTITE_VRAC_IGNOREE,
+      created_by: utilisateur,
+    });
+    if (insertionErreur) return { ok: false, message: insertionErreur.message };
 
     await logAudit({
       utilisateur,
       module: "ConditionnementCodeVrac",
-      action: existant ? "modification" : "creation",
+      action: "creation",
       cible: candidat.code,
-      resume: `Conditionnement ligne ${ligneId} (lot ${codeLigne}) : ${formaterKg(quantiteVrac)} kg pris sur le code vrac ${candidat.code} (reste ${formaterKg(arrondi3(candidat.disponible - quantiteVrac))} kg)`,
-      apres: { ligneId, code: codeLigne, codeVrac: candidat.code, quantite: arrondi3(dejaChoisi + quantiteVrac) },
+      resume: `Conditionnement ligne ${ligneId} (lot ${codeLigne}) : code vrac ${candidat.code} choisi (${formaterKg(candidat.disponible)} kg disponibles, le vrac se decompte avec les cartons)`,
+      apres: { ligneId, code: codeLigne, codeVrac: candidat.code, disponible: candidat.disponible },
     });
 
     revalidatePath("/production/suivi/dashboard");
     return {
       ok: true,
-      message: `${formaterKg(quantiteVrac)} kg pris sur ${candidat.code} (reste ${formaterKg(arrondi3(candidat.disponible - quantiteVrac))} kg).`,
+      message: `${candidat.code} choisi (${formaterKg(candidat.disponible)} kg disponibles : le vrac se decompte tout seul avec les cartons).`,
     };
   } catch (erreur) {
     return { ok: false, message: erreur instanceof Error ? erreur.message : "Enregistrement impossible." };

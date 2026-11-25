@@ -170,6 +170,9 @@ export default async function PlanningDashboardPage({
   const dateDebutFilter = (params.date_debut || "").trim();
   const dateFinFilter = (params.date_fin || "").trim();
 
+  // Choix de code vrac + vrac consomme (calcul avec les cartons) : lances tout de suite, en parallele avec le chargement principal, au lieu
+  // d'attendre la fin de celui-ci (la lecture ne depend de rien d'autre).
+  const choixPromise = lireTousLesChoix();
   const [currentUser, { data: dashboardData, error: dashboardError }] = await Promise.all([
     getCurrentStockUser(),
     fetchDashboardData(),
@@ -218,7 +221,7 @@ export default async function PlanningDashboardPage({
   // Conditionnement : colonne N Lot = codes VRAC choisis (voir lib/conditionnement-codes-vrac.ts). Table absente (script SQL pas encore lance)
   // = ancien fonctionnement, rien ne change.
   const [resultatChoix, peutEcrireConditionnement, peutEcrireFabrication] = await Promise.all([
-    lireTousLesChoix(),
+    choixPromise,
     canWritePageUser(currentUser, "productionSuiviProductionConditionnement"),
     canWritePageUser(currentUser, "productionSuiviProductionFabrication"),
   ]);
