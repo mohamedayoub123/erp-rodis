@@ -4,6 +4,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { CartonGammePieChart } from "./carton-gamme-pie-chart";
+import { JourDetailLigne } from "./jour-detail-ligne";
 import {
   computeProduitParCode,
   fetchAllCartonEntries,
@@ -150,16 +151,31 @@ export default async function RapportCartonGammePage({ searchParams }: { searchP
   const detailRows = produitFilter ? rows : [];
   const byMonth = new Map<string, number>();
   const byDay = new Map<string, number>();
+  // Par jour : aussi le detail par produit (le filtre Article est une
+  // recherche partielle, donc plusieurs produits peuvent se retrouver le
+  // meme jour) - affiche quand on ouvre la fleche du jour.
+  const byDayProduit = new Map<string, Map<string, number>>();
   for (const row of detailRows) {
     const mois = (row.date || "").slice(0, 7);
     if (mois) byMonth.set(mois, (byMonth.get(mois) ?? 0) + row.cartonFabrique);
-    if (row.date) byDay.set(row.date, (byDay.get(row.date) ?? 0) + row.cartonFabrique);
+    if (row.date) {
+      byDay.set(row.date, (byDay.get(row.date) ?? 0) + row.cartonFabrique);
+      const produitsDuJour = byDayProduit.get(row.date) ?? new Map<string, number>();
+      produitsDuJour.set(row.produit, (produitsDuJour.get(row.produit) ?? 0) + row.cartonFabrique);
+      byDayProduit.set(row.date, produitsDuJour);
+    }
   }
   const monthRows = [...byMonth.entries()]
     .map(([mois, total]) => ({ mois, label: moisLabel(mois), total }))
     .sort((a, b) => b.mois.localeCompare(a.mois));
   const dayRows = [...byDay.entries()]
-    .map(([jour, total]) => ({ jour, total }))
+    .map(([jour, total]) => ({
+      jour,
+      total,
+      produits: [...(byDayProduit.get(jour)?.entries() ?? [])]
+        .map(([produit, totalProduit]) => ({ produit, total: totalProduit }))
+        .sort((a, b) => b.total - a.total || a.produit.localeCompare(b.produit, "fr", { sensitivity: "base" })),
+    }))
     .sort((a, b) => b.jour.localeCompare(a.jour));
 
   const buildHref = (overrides: Record<string, string | undefined>) => {
@@ -357,10 +373,12 @@ export default async function RapportCartonGammePage({ searchParams }: { searchP
                       </tr>
                     ) : (
                       dayRows.map((row) => (
-                        <tr key={row.jour} className="border-t border-slate-100">
-                          <td className="px-4 py-3 font-medium text-slate-900">{formatDate(row.jour)}</td>
-                          <td className="bg-sky-50/30 px-4 py-3 text-slate-700">{Math.round(row.total)}</td>
-                        </tr>
+                        <JourDetailLigne
+                          key={row.jour}
+                          jourLabel={formatDate(row.jour)}
+                          total={row.total}
+                          produits={row.produits}
+                        />
                       ))
                     )}
                   </tbody>
