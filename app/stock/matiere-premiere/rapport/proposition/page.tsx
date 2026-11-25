@@ -7,6 +7,7 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { matchesArticleSearch } from "@/lib/article-search";
 import { fetchAgregatsMpParArticle } from "@/lib/mp-agregats";
 import { calculerReportBesoin } from "@/lib/proposition-report";
+import { CYCLE_COMMANDE_MOIS, DELAI_LIVRAISON_MOIS, DUREE_OBJECTIF_MOIS, objectifGlissant } from "@/lib/delai-commande-mp";
 
 type ArticleMpRow = {
   id: number;
@@ -49,21 +50,8 @@ const MOIS_LONG = [
   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
 ];
 
-// Meme calcul que Besoin Commande MP : objectif pour un mois de depart =
-// somme de la consommation reelle de ce mois-la et des 8 suivants (3 mois
-// de delai de livraison + 6 mois de cycle de commande, sur les 12 derniers
-// mois, un seul passage par mois calendaire - la consommation varie selon
-// le mois, ce n'est pas une moyenne fixe).
-const DELAI_LIVRAISON_MOIS = 3;
-const CYCLE_COMMANDE_MOIS = 6;
-
-function objectifGlissant(consommationParMoisCalendaire: number[], moisDepart: number) {
-  let total = 0;
-  for (let decalage = 0; decalage < DELAI_LIVRAISON_MOIS + CYCLE_COMMANDE_MOIS; decalage++) {
-    total += consommationParMoisCalendaire[(moisDepart + decalage) % 12];
-  }
-  return Math.round(total * 100) / 100;
-}
+// Objectif d'un mois de depart (consommation du meme mois de l'annee passee, delai de livraison + cycle de commande) : meme calcul que
+// Besoin Commande MP et Surstock MP, voir lib/delai-commande-mp.ts.
 
 async function fetchAllArticlesMp() {
   const rows: ArticleMpRow[] = [];
@@ -198,9 +186,10 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
   // Stock actuel = somme entree-sortie de TOUS les mouvements (meme calcul
   // que Stock MP). Consommation par mois calendaire = sortie des 12
   // derniers mois seulement, regroupee par mois (Janvier, Fevrier...).
-  // Objectif du mois choisi = besoin des 9 mois a partir de ce mois-la (3
+  // Objectif du mois choisi = besoin des 10 mois a partir de ce mois-la (4
   // de delai de livraison + 6 de cycle de commande, meme formule que
-  // Besoin Commande MP). A commander = objectif moins ce
+  // Besoin Commande MP, avec la consommation du meme mois de l'annee
+  // passee - voir lib/delai-commande-mp.ts). A commander = objectif moins ce
   // qu'il reste deja en stock ET moins ce qui est deja en commande/import
   // (jamais negatif - si stock + deja-commande couvrent deja l'objectif,
   // rien a commander, l'article n'apparait pas).
@@ -266,7 +255,7 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
     { label: "Unite", key: "unite" },
     { label: "Stock actuel", key: "stockActuel" },
     { label: "Deja en commande/import", key: "dejaEnCommande" },
-    { label: `Objectif (${MOIS_LONG[moisIdx]}, 9 mois)`, key: "objectif" },
+    { label: `Objectif (${MOIS_LONG[moisIdx]}, ${DUREE_OBJECTIF_MOIS} mois)`, key: "objectif" },
     { label: "Stock min (3 mois)", key: "minStock" },
     { label: `Besoin de ${MOIS_LONG[moisIdx]}`, key: "besoinMois" },
     { label: "Reporte des mois d'avant (non commande)", key: "reporte" },
@@ -298,9 +287,9 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
               Proposition de Commande MP
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Choisis le mois de la commande : pour chaque article, l&apos;objectif (besoin reel
-              des 9 mois a partir de ce mois - 3 mois de delai de livraison + 6 mois de cycle de
-              commande, meme calcul que Besoin Commande MP) est compare au
+              Choisis le mois de la commande : pour chaque article, l&apos;objectif (consommation du meme
+              mois de l&apos;annee passee, sur les {DUREE_OBJECTIF_MOIS} mois a partir de ce mois - {DELAI_LIVRAISON_MOIS} mois
+              de delai de livraison + {CYCLE_COMMANDE_MOIS} mois de cycle de commande, meme calcul que Besoin Commande MP) est compare au
               stock actuel et a ce qui est deja en commande/import (pas encore receptionne). Seuls
               les articles ou stock + deja-commande ne suffisent pas apparaissent, avec la quantite
               a commander proposee (objectif moins stock actuel moins deja en commande/import).
@@ -388,7 +377,7 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock actuel</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Deja en commande/import</th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Objectif ({MOIS_LONG[moisIdx]}, 9 mois)</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Objectif ({MOIS_LONG[moisIdx]}, {DUREE_OBJECTIF_MOIS} mois)</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock min (3 mois)</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Besoin de {MOIS_LONG[moisIdx]}</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
