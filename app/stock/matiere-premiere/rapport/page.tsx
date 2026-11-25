@@ -82,6 +82,13 @@ const TILES = [
     description: "Articles avec plus de 6 mois de stock actuel : le surplus par rapport au besoin reel.",
   },
   {
+    label: "Sorties 6 mois",
+    href: "/stock/matiere-premiere/rapport/sorties-6-mois",
+    pageKey: "stockSorties6MoisMp",
+    icon: "\u{1F4E4}",
+    description: "Tous les articles avec leur sortie des 6 derniers mois, filtre famille, sous famille et article.",
+  },
+  {
     label: "Stock Negatif",
     href: "/stock/matiere-premiere/rapport/stock-negatif",
     pageKey: "stockNegatifMp",

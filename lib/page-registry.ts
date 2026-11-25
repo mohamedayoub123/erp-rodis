@@ -262,6 +262,14 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     adminGroup: "Rapport (Matiere Premiere)",
   },
   {
+    key: "stockSorties6MoisMp",
+    module: "Stock",
+    label: "Sorties 6 mois MP",
+    pathPrefixes: ["/stock/matiere-premiere/rapport/sorties-6-mois"],
+    hasWrite: false,
+    adminGroup: "Rapport (Matiere Premiere)",
+  },
+  {
     key: "stockActuelMp",
     module: "Stock",
     label: "Stock Actuel MP",
@@ -1272,6 +1280,7 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
   "stockBesoinCommandeMp",
   "stockPropositionCommandeMp",
   "stockSurstockMp",
+  "stockSorties6MoisMp",
   "stockPerimeMp",
   "stockDormantMp",
   "volumeLotMp",
