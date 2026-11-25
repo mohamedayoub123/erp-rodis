@@ -570,6 +570,80 @@ export async function fetchTotalStockInDepot(
   return total - totalReserved;
 }
 
+// Meme resultat que fetchTotalStockInDepot pour PLUSIEURS articles et PLUSIEURS depots en une fois (page Verifier
+// stock : une centaine de MP x 2 depots) : les mouvements de tous les articles sont lus en quelques requetes
+// groupees, les depots par defaut en une, les reservations actives une seule fois. Avant, chaque article x depot
+// relancait 3 lectures (mouvements, depot par defaut, reservations) : plus de 900 requetes et une minute d'attente
+// pour un programme de 27 lignes. Renvoie aussi le stock brut de chaque article (tous depots confondus, sans
+// reservations), qui sert a la colonne "Stock".
+export async function fetchStocksBatch(
+  articleType: ArticleType,
+  articleIds: number[],
+  depotIds: number[]
+): Promise<{ brut: Map<number, number>; disponibleParDepot: Map<number, Map<number, number>> }> {
+  const ids = [...new Set(articleIds)];
+  const brut = new Map<number, number>();
+  const disponibleParDepot = new Map<number, Map<number, number>>(depotIds.map((depotId) => [depotId, new Map<number, number>()]));
+  if (ids.length === 0) return { brut, disponibleParDepot };
+
+  const table = stockTableFor(articleType);
+  const tableArticles = articleType === "MP" ? "articles_matiere_premiere" : "articles";
+  const paquetsIds: number[][] = [];
+  for (let i = 0; i < ids.length; i += 100) paquetsIds.push(ids.slice(i, i + 100));
+
+  type Mouvement = { article_id: number; qte_entree: number; qte_sortie: number; depot_id: number | null };
+
+  const [mouvementsParPaquet, articlesDefaut, reservations] = await Promise.all([
+    Promise.all(
+      paquetsIds.map((paquet) =>
+        fetchAllRowsParallel<Mouvement>(
+          () =>
+            supabaseServer.from(table).select("id", { count: "exact", head: true }).in("article_id", paquet) as unknown as PromiseLike<{
+              count: number | null;
+              error: { message: string } | null;
+            }>,
+          (from, to) =>
+            supabaseServer
+              .from(table)
+              .select("article_id, qte_entree, qte_sortie, depot_id")
+              .in("article_id", paquet)
+              .order("id", { ascending: true })
+              .range(from, to) as unknown as PromiseLike<{ data: Mouvement[] | null; error: { message: string } | null }>
+        )
+      )
+    ),
+    lireParPaquets<{ id: number; depot_id: number | null }>(ids, (paquet) =>
+      supabaseServer.from(tableArticles).select("id, depot_id").in("id", paquet)
+    ),
+    lireReservationsActives(),
+  ]);
+
+  const depotDefautParArticle = new Map(articlesDefaut.map((a) => [a.id, a.depot_id]));
+  for (const id of ids) {
+    brut.set(id, 0);
+    for (const depotId of depotIds) disponibleParDepot.get(depotId)!.set(id, 0);
+  }
+
+  for (const mouvement of mouvementsParPaquet.flat()) {
+    const net = Number(mouvement.qte_entree ?? 0) - Number(mouvement.qte_sortie ?? 0);
+    brut.set(mouvement.article_id, (brut.get(mouvement.article_id) ?? 0) + net);
+    // Un mouvement sans depot est dans le depot par defaut de l'article (meme regle que fetchTotalStockInDepot)
+    const depotEffectif = mouvement.depot_id ?? depotDefautParArticle.get(mouvement.article_id) ?? null;
+    const disponible = depotEffectif !== null ? disponibleParDepot.get(depotEffectif) : undefined;
+    if (disponible) disponible.set(mouvement.article_id, (disponible.get(mouvement.article_id) ?? 0) + net);
+  }
+
+  // Moins ce qui est deja promis a un Transfer Order dont CE depot est la source
+  for (const reservation of reservations) {
+    if (reservation.articleType !== articleType) continue;
+    const disponible = disponibleParDepot.get(reservation.depotSourceId);
+    if (!disponible || !disponible.has(reservation.articleId)) continue;
+    disponible.set(reservation.articleId, (disponible.get(reservation.articleId) ?? 0) - reservation.quantite);
+  }
+
+  return { brut, disponibleParDepot };
+}
+
 // Repartit une quantite demandee sur les lots disponibles, dans l'ORDRE
 // deja trie FEFO par fetchLotsInDepot - vide en premier le lot avec la date
 // d'expiration/fabrication la plus proche.

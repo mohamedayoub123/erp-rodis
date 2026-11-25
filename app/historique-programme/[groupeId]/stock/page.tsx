@@ -5,7 +5,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { fetchPlCodeByGroupeId } from "@/lib/programme-numbering";
-import { fetchTotalStockInDepot } from "@/app/depots/transfer-order/stock-lots";
+import { fetchStocksBatch } from "@/app/depots/transfer-order/stock-lots";
 import { VerifierStockTable } from "@/app/depots/transfer-order/verifier-stock-table";
 import { autoCreateTransferOrdersFromProgrammeLigneAction } from "./actions";
 import { estCategorieArrondie } from "@/app/depots/transfer-order/repartition";
@@ -40,31 +40,9 @@ type ArticleMpRow = {
   categorie: string | null;
 };
 
-type MouvementRow = {
-  article_id: number | null;
-  qte_entree: number;
-  qte_sortie: number;
-};
-
 function round(value: number, decimals = 3) {
   const factor = 10 ** decimals;
   return Math.round(value * factor) / factor;
-}
-
-async function fetchAll<T>(table: string, select: string) {
-  const rows: T[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer.from(table).select(select).range(from, from + pageSize - 1);
-    if (error) return { rows, error };
-    rows.push(...((data ?? []) as T[]));
-    if ((data ?? []).length < pageSize) break;
-    from += pageSize;
-  }
-
-  return { rows, error: null };
 }
 
 // Meme calcul que /production/programme/[numero]/stock (Programme MB), mais
@@ -93,6 +71,14 @@ export default async function HistoriqueProgrammeVerifierStockPage({
   if (!canView) notFound();
   const canCreateTransferOrders = await canWritePageUser(currentUser, "depots");
 
+  // Lectures qui ne dependent de rien d'autre : lancees tout de suite, en parallele avec la lecture des lignes et
+  // des recettes (avant, elles attendaient leur tour l'une apres l'autre).
+  const plCodePromise = fetchPlCodeByGroupeId();
+  const depotsPromise = Promise.all([
+    supabaseServer.from("depots").select("id").ilike("nom", "Depot B").maybeSingle(),
+    supabaseServer.from("depots").select("id").ilike("nom", "Depot E").maybeSingle(),
+  ]);
+
   const { data: lignesData, error } = await supabaseServer
     .from("programme_lignes")
     .select("article_id, qt_carton, vrac_a_fabriquer, date_jour, plateforme, numero_lot_detail")
@@ -103,7 +89,7 @@ export default async function HistoriqueProgrammeVerifierStockPage({
     notFound();
   }
 
-  const plCodeByGroupeId = await fetchPlCodeByGroupeId();
+  const plCodeByGroupeId = await plCodePromise;
   const code = plCodeByGroupeId.get(groupeIdNumber) ?? `PL-${groupeIdNumber}`;
 
   const articleIds = [...new Set(lignes.map((l) => l.article_id).filter((id): id is number => !!id))];
@@ -195,50 +181,64 @@ export default async function HistoriqueProgrammeVerifierStockPage({
 
   const mpIds = [...besoinParMp.keys()];
 
-  const [{ data: articlesMpData, error: articlesMpError }, { rows: mouvements, error: mouvementsError }] =
-    await Promise.all([
-      supabaseServer.from("articles_matiere_premiere").select("id, nom_article, unite, categorie").in("id", mpIds),
-      mpIds.length > 0
-        ? fetchAll<MouvementRow>("lots_stock_matiere_premiere", "article_id, qte_entree, qte_sortie")
-        : Promise.resolve({ rows: [] as MouvementRow[], error: null }),
-    ]);
-
-  const finalError = chargeError || articlesMpError || mouvementsError;
-  const articleMpById = new Map(((articlesMpData ?? []) as ArticleMpRow[]).map((a) => [a.id, a]));
-
-  const stockParMp = new Map<number, number>();
-  for (const mv of mouvements) {
-    if (!mv.article_id) continue;
-    stockParMp.set(
-      mv.article_id,
-      (stockParMp.get(mv.article_id) ?? 0) + Number(mv.qte_entree ?? 0) - Number(mv.qte_sortie ?? 0)
-    );
-  }
-
-  // "Stock actuel" ci-dessus est brut, tous depots confondus, sans tenir
-  // compte de ce qui est deja reserve par un autre Transfer Order - ne dit
-  // pas ce qui est REELLEMENT disponible pour CE programme au depot d'ou
-  // partent les Transfer Order (Depot B). fetchTotalStockInDepot fait deja
-  // ce calcul net (voir app/depots/transfer-order/stock-lots.ts).
-  const [{ data: depotBData }, { data: depotEData }] = await Promise.all([
-    supabaseServer.from("depots").select("id").ilike("nom", "Depot B").maybeSingle(),
-    supabaseServer.from("depots").select("id").ilike("nom", "Depot E").maybeSingle(),
-  ]);
+  const [{ data: depotBData }, { data: depotEData }] = await depotsPromise;
   const depotBId = (depotBData as { id: number } | null)?.id ?? null;
   const depotEId = (depotEData as { id: number } | null)?.id ?? null;
 
-  const disponibleDepotBParMp = new Map<number, number>();
-  const disponibleDepotEParMp = new Map<number, number>();
-  await Promise.all(
-    mpIds.map(async (mpId) => {
-      if (depotBId) {
-        disponibleDepotBParMp.set(mpId, await fetchTotalStockInDepot("MP", mpId, depotBId));
+  // "Stock actuel" est brut, tous depots confondus, sans tenir compte de ce qui est deja reserve par un autre
+  // Transfer Order - ne dit pas ce qui est REELLEMENT disponible pour CE programme au depot d'ou partent les
+  // Transfer Order (Depot B) : fetchStocksBatch donne aussi ce calcul net par depot (voir
+  // app/depots/transfer-order/stock-lots.ts), pour TOUTES les MP en quelques lectures groupees.
+  // "Creer les Transfer Order" bloque si ce programme est deja entierement couvert par des Transfer Order
+  // existants (meme logique que Programme MB, via source_groupe_id_programme_ligne au lieu de
+  // source_numero_programme) - reste possible si aucun n'existe encore, ou si un manque de stock au moment de leur
+  // creation n'a pas couvert tout le besoin. Les 3 lectures (noms des MP, stock, Transfer Order existants) sont
+  // independantes : lancees ensemble.
+  const lireStocks = async () => {
+    try {
+      return {
+        stocks: await fetchStocksBatch("MP", mpIds, [depotBId, depotEId].filter((id): id is number => id !== null)),
+        erreur: null as { message: string } | null,
+      };
+    } catch (erreur) {
+      return {
+        stocks: { brut: new Map<number, number>(), disponibleParDepot: new Map<number, Map<number, number>>() },
+        erreur: { message: erreur instanceof Error ? erreur.message : "Lecture du stock impossible." },
+      };
+    }
+  };
+
+  const lireCouverture = async () => {
+    const { data: existingTransferOrdersData } = await supabaseServer
+      .from("transfer_orders")
+      .select("id")
+      .eq("source_groupe_id_programme_ligne", groupeIdNumber);
+    const existingTransferOrderIds = ((existingTransferOrdersData ?? []) as { id: number }[]).map((t) => t.id);
+    const couvertParMp = new Map<number, number>();
+    if (existingTransferOrderIds.length > 0) {
+      const { data: existingLignesData } = await supabaseServer
+        .from("transfer_order_lignes")
+        .select("article_id, quantite_demandee")
+        .in("transfer_order_id", existingTransferOrderIds)
+        .eq("article_type", "MP");
+      for (const l of (existingLignesData ?? []) as { article_id: number; quantite_demandee: number }[]) {
+        couvertParMp.set(l.article_id, (couvertParMp.get(l.article_id) ?? 0) + Number(l.quantite_demandee ?? 0));
       }
-      if (depotEId) {
-        disponibleDepotEParMp.set(mpId, await fetchTotalStockInDepot("MP", mpId, depotEId));
-      }
-    })
-  );
+    }
+    return { existingTransferOrderIds, couvertParMp };
+  };
+
+  const [{ data: articlesMpData, error: articlesMpError }, { stocks, erreur: stocksError }, couverture] = await Promise.all([
+    supabaseServer.from("articles_matiere_premiere").select("id, nom_article, unite, categorie").in("id", mpIds),
+    lireStocks(),
+    lireCouverture(),
+  ]);
+
+  const finalError = chargeError || articlesMpError || stocksError;
+  const articleMpById = new Map(((articlesMpData ?? []) as ArticleMpRow[]).map((a) => [a.id, a]));
+  const stockParMp = stocks.brut;
+  const disponibleDepotBParMp = (depotBId ? stocks.disponibleParDepot.get(depotBId) : null) ?? new Map<number, number>();
+  const disponibleDepotEParMp = (depotEId ? stocks.disponibleParDepot.get(depotEId) : null) ?? new Map<number, number>();
 
   const rows = mpIds
     .map((mpId) => {
@@ -259,31 +259,10 @@ export default async function HistoriqueProgrammeVerifierStockPage({
     })
     .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
 
-  // "Creer les Transfer Order" bloque si ce programme est deja entierement
-  // couvert par des Transfer Order existants (meme logique que Programme
-  // MB, via source_groupe_id_programme_ligne au lieu de
-  // source_numero_programme) - reste possible si aucun n'existe encore, ou
-  // si un manque de stock au moment de leur creation n'a pas couvert tout
-  // le besoin.
-  const { data: existingTransferOrdersData } = await supabaseServer
-    .from("transfer_orders")
-    .select("id")
-    .eq("source_groupe_id_programme_ligne", groupeIdNumber);
-  const existingTransferOrderIds = ((existingTransferOrdersData ?? []) as { id: number }[]).map((t) => t.id);
-
-  let dejaEntierementCouvert = false;
-  if (existingTransferOrderIds.length > 0) {
-    const { data: existingLignesData } = await supabaseServer
-      .from("transfer_order_lignes")
-      .select("article_id, quantite_demandee")
-      .in("transfer_order_id", existingTransferOrderIds)
-      .eq("article_type", "MP");
-    const couvertParMp = new Map<number, number>();
-    for (const l of (existingLignesData ?? []) as { article_id: number; quantite_demandee: number }[]) {
-      couvertParMp.set(l.article_id, (couvertParMp.get(l.article_id) ?? 0) + Number(l.quantite_demandee ?? 0));
-    }
-    dejaEntierementCouvert = mpIds.every((mpId) => (couvertParMp.get(mpId) ?? 0) + 1e-6 >= (besoinParMp.get(mpId) ?? 0));
-  }
+  const { existingTransferOrderIds, couvertParMp } = couverture;
+  const dejaEntierementCouvert =
+    existingTransferOrderIds.length > 0 &&
+    mpIds.every((mpId) => (couvertParMp.get(mpId) ?? 0) + 1e-6 >= (besoinParMp.get(mpId) ?? 0));
   const peutCreerTransferOrders = existingTransferOrderIds.length === 0 || !dejaEntierementCouvert;
 
   return (
