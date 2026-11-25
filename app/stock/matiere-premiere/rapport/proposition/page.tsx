@@ -6,6 +6,7 @@ import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { fetchAgregatsMpParArticle } from "@/lib/mp-agregats";
+import { calculerReportBesoin } from "@/lib/proposition-report";
 
 type ArticleMpRow = {
   id: number;
@@ -36,6 +37,10 @@ type PropositionRow = {
   stock_actuel: number;
   deja_en_commande: number;
   objectif: number;
+  // besoin du mois choisi seul, puis quantite reportee des mois d'avant non commandes (et le mois d'ou elle vient)
+  besoin_mois: number;
+  reporte: number;
+  reporte_de: number | null;
   a_commander: number;
 };
 
@@ -144,11 +149,12 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
   const articleFilter = (params.article || "").trim();
   const categorieFilter = (params.categorie || "").trim().toLowerCase();
 
+  const moisCourant = new Date().getMonth();
   const moisParam = Number(params.mois);
   const moisIdx =
     Number.isInteger(moisParam) && moisParam >= 1 && moisParam <= 12
       ? moisParam - 1
-      : new Date().getMonth();
+      : moisCourant;
 
   const [
     { rows: articles, error: articlesError },
@@ -218,7 +224,12 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
       const dejaEnCommande = dejaEnCommandeByArticle.get(article.id) ?? 0;
       const consommationParMoisCalendaire = consommationByArticleAndMois.get(article.id) ?? new Array(12).fill(0);
       const objectif = objectifGlissant(consommationParMoisCalendaire, moisIdx);
-      const aCommander = Math.max(0, Math.round((objectif - stockActuel - dejaEnCommande) * 100) / 100);
+      // Le reste non commande des mois d'avant (a partir du mois en cours) est reporte sur le mois choisi - voir lib/proposition-report.ts
+      const report = calculerReportBesoin(
+        (mois) => objectifGlissant(consommationParMoisCalendaire, mois) - stockActuel - dejaEnCommande,
+        moisCourant,
+        moisIdx
+      );
 
       return {
         article_id: article.id,
@@ -229,7 +240,10 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
         stock_actuel: stockActuel,
         deja_en_commande: dejaEnCommande,
         objectif,
-        a_commander: aCommander,
+        besoin_mois: report.besoinMois,
+        reporte: report.reporte,
+        reporte_de: report.reporteDe,
+        a_commander: report.aCommander,
       };
     })
     .filter((row) => row.a_commander > 0)
@@ -254,6 +268,8 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
     { label: "Deja en commande/import", key: "dejaEnCommande" },
     { label: `Objectif (${MOIS_LONG[moisIdx]}, 9 mois)`, key: "objectif" },
     { label: "Stock min (3 mois)", key: "minStock" },
+    { label: `Besoin de ${MOIS_LONG[moisIdx]}`, key: "besoinMois" },
+    { label: "Reporte des mois d'avant (non commande)", key: "reporte" },
     { label: "A commander", key: "aCommander" },
   ];
 
@@ -265,6 +281,8 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
     dejaEnCommande: row.deja_en_commande,
     objectif: row.objectif,
     minStock: row.min_stock === null ? "-" : row.min_stock,
+    besoinMois: row.besoin_mois,
+    reporte: row.reporte > 0 && row.reporte_de !== null ? `${row.reporte} (de ${MOIS_LONG[row.reporte_de]})` : "-",
     aCommander: row.a_commander,
   }));
 
@@ -286,6 +304,9 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
               stock actuel et a ce qui est deja en commande/import (pas encore receptionne). Seuls
               les articles ou stock + deja-commande ne suffisent pas apparaissent, avec la quantite
               a commander proposee (objectif moins stock actuel moins deja en commande/import).
+              Ce qui devait etre commande un mois d&apos;avant (a partir du mois en cours) et ne l&apos;a pas ete est
+              reporte sur le mois choisi : colonne &quot;Reporte des mois d&apos;avant&quot;. A commander = besoin du mois +
+              reporte, ce qui revient a la plus grosse quantite non commandee depuis le mois en cours.
             </p>
           </div>
 
@@ -369,6 +390,11 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Deja en commande/import</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Objectif ({MOIS_LONG[moisIdx]}, 9 mois)</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock min (3 mois)</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Besoin de {MOIS_LONG[moisIdx]}</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
+                      Reporte des mois d&apos;avant
+                      <span className="block text-xs font-normal text-slate-400">pas commande</span>
+                    </th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">A commander</th>
                   </tr>
                 </thead>
@@ -383,6 +409,17 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.objectif)}</td>
                       <td className="px-6 py-4 text-slate-600">
                         {row.min_stock === null ? "-" : formatNumber(row.min_stock)}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.besoin_mois)}</td>
+                      <td className="whitespace-nowrap px-6 py-4 font-semibold text-amber-700">
+                        {row.reporte > 0 && row.reporte_de !== null ? (
+                          <>
+                            +{formatNumber(row.reporte)}
+                            <span className="block text-xs font-normal text-slate-500">de {MOIS_LONG[row.reporte_de]}</span>
+                          </>
+                        ) : (
+                          <span className="font-normal text-slate-300">-</span>
+                        )}
                       </td>
                       <td className="px-6 py-4">
                         <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800">
