@@ -8,7 +8,7 @@ import { MultiSelectFilter } from "@/app/_components/multi-select-filter";
 import { construireQuery, correspondALaListe, lireListeParam, optionsDistinctes } from "@/lib/filtre-multiple";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { fetchAgregatsMpParArticle } from "@/lib/mp-agregats";
-import { DELAI_LIVRAISON_MOIS, DUREE_OBJECTIF_MOIS, MOIS_A_COUVRIR, SECURITE_MOIS, objectifGlissant } from "@/lib/delai-commande-mp";
+import { DELAI_LIVRAISON_MOIS, SECURITE_MOIS, objectifMois } from "@/lib/delai-commande-mp";
 import { VoirToutBanner } from "@/app/_components/voir-tout-banner";
 
 type ArticleMpRow = {
@@ -30,8 +30,8 @@ type SurstockRow = {
   surplus: number;
 };
 
-// Meme calcul que Besoin Commande MP / Proposition de Commande MP (delai de livraison + mois a couvrir + securite, consommation du meme mois
-// de l'annee passee) : voir lib/delai-commande-mp.ts. Meme objectif partout, sinon un article serait "a commander" et "en surstock".
+// Meme objectif que Besoin Commande MP / Proposition de Commande MP (sortie du mois de livraison, 4 mois plus tard, l'annee passee + 2 mois
+// de plus) : voir lib/delai-commande-mp.ts. Meme objectif partout, sinon un article serait "a commander" et "en surstock".
 
 async function fetchAllArticlesMp() {
   const rows: ArticleMpRow[] = [];
@@ -92,10 +92,10 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
   // Stock actuel = somme entree-sortie de TOUS les mouvements (meme calcul
   // que Stock MP). Consommation par mois calendaire = sortie des 12
   // derniers mois seulement, regroupee par mois (Janvier, Fevrier...).
-  // Objectif = besoin des 7 mois a partir du mois actuel (4 de delai de
-  // livraison + 1 mois a couvrir + 2 de securite, meme formule que Besoin
-  // Commande MP / Proposition). Surstock = ce qui depasse cet objectif : stock
-  // qu'on n'a pas besoin de toucher avant plus de 7 mois.
+  // Objectif = pour une commande passee ce mois-ci (livraison dans 4 mois) :
+  // la sortie du mois de livraison l'annee passee + 2 mois de plus, meme
+  // formule que Besoin Commande MP / Proposition. Surstock = ce qui depasse
+  // cet objectif : stock qu'on n'a pas besoin de toucher.
   // Stock et consommation par mois calendaire sont calcules directement par
   // la base (une ligne par article, voir lib/mp-agregats.ts) au lieu de
   // telecharger tous les mouvements.
@@ -114,7 +114,7 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
     .map((article) => {
       const stockActuel = stockByArticle.get(article.id) ?? 0;
       const consommationParMoisCalendaire = consommationByArticleAndMois.get(article.id) ?? new Array(12).fill(0);
-      const objectif = objectifGlissant(consommationParMoisCalendaire, moisIdx);
+      const objectif = objectifMois(consommationParMoisCalendaire, moisIdx);
 
       return {
         article_id: article.id,
@@ -153,7 +153,7 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
     { label: "Sous famille", key: "sousFamille" },
     { label: "Unite", key: "unite" },
     { label: "Stock actuel", key: "stockActuel" },
-    { label: `Stock necessaire (${DUREE_OBJECTIF_MOIS} mois)`, key: "stockNecessaire" },
+    { label: `Stock necessaire (livraison + ${SECURITE_MOIS} mois)`, key: "stockNecessaire" },
     { label: "Surplus", key: "surplus" },
   ];
 
@@ -179,10 +179,10 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
               Surstock MP
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Articles dont le stock actuel depasse ce qu&apos;il faut pour tenir {DUREE_OBJECTIF_MOIS} mois a partir
-              d&apos;aujourd&apos;hui ({DELAI_LIVRAISON_MOIS} mois de delai de livraison + {MOIS_A_COUVRIR} mois a couvrir + {SECURITE_MOIS} mois de securite,
-              meme calcul que Besoin Commande MP / Proposition de Commande, base sur la
-              consommation du meme mois de l&apos;annee passee). Le surplus = stock actuel moins cet objectif.
+              Articles dont le stock actuel depasse ce qu&apos;il faut a la livraison d&apos;une commande passee
+              aujourd&apos;hui ({DELAI_LIVRAISON_MOIS} mois plus tard, meme calcul que Besoin Commande MP / Proposition de
+              Commande) : la sortie du mois de livraison l&apos;annee passee + {SECURITE_MOIS} mois de plus. Le surplus =
+              stock actuel moins cet objectif.
               Trie du plus gros surplus au plus petit.
             </p>
           </div>
@@ -258,7 +258,7 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Sous famille</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock actuel</th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock necessaire ({DUREE_OBJECTIF_MOIS} mois)</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock necessaire (livraison + {SECURITE_MOIS} mois)</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Surplus</th>
                   </tr>
                 </thead>

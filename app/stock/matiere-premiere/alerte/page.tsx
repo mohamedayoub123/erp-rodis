@@ -10,6 +10,7 @@ import { MultiSelectFilter } from "@/app/_components/multi-select-filter";
 import { construireQuery, correspondALaListe, lireListeParam, optionsDistinctes } from "@/lib/filtre-multiple";
 import { formatDate } from "@/lib/format-date";
 import { joursEnMoisEtJours } from "@/lib/duree-jours";
+import { comparerCategorieEtSousFamille } from "@/lib/ordre-categories-mp";
 import { encodeDossierId } from "../commande/dossier-id";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { computeStatutBc } from "../bc/constants";
@@ -223,23 +224,8 @@ const COULEURS_ALERTE: Record<
 // les articles non allumes a la fin
 const ORDRE_COULEURS = { orange: 0, jaune: 1, vert: 2, blanc: 3 } as const;
 
-// Ordre des CATEGORIES (demande explicite) : BASE, MP cosmetique, colorant cosmetique, article de conditionnement cosmetique, flacons verre, MP
-// plastique, colorant plastique, puis toutes les autres (par ordre alphabetique). Compare sans accent ni majuscule : "mp plastique" et
-// "MP PLASTIQUE" sont la meme categorie.
-function cleCategorie(valeur: string | null): string {
-  return (valeur ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim().toUpperCase();
-}
-const ORDRE_CATEGORIES = new Map<string, number>([
-  ["BASE", 0],
-  ["MP COSMETIQUE", 1],
-  ["COLORANT COSMETIQUE", 2],
-  ["ARTICLE DE CONDITIONNEMENT COSMETIQUE", 3],
-  ["FLACONS VERRE", 4],
-  ["FLACON VERRE", 4],
-  ["MP PLASTIQUE", 5],
-  ["COLORANT PLASTIQUE", 6],
-]);
-const RANG_AUTRES_CATEGORIES = 7;
+// Ordre des CATEGORIES (BASE, MP cosmetique, colorant cosmetique...) et des sous-familles : voir lib/ordre-categories-mp.ts, le meme que
+// Proposition de Commande MP.
 
 function couleurAlerte(stock: number, consommation3Mois: number, aUnBc: boolean, aUnImport: boolean): CouleurAlerte | null {
   if (!(stock <= consommation3Mois)) return null;
@@ -466,10 +452,7 @@ export default async function StockAlerteMpPage({
     // L'Excel et les 150 premieres lignes affichees suivent le meme ordre.
     .sort(
       (a, b) =>
-        (ORDRE_CATEGORIES.get(cleCategorie(a.categorie)) ?? RANG_AUTRES_CATEGORIES) -
-          (ORDRE_CATEGORIES.get(cleCategorie(b.categorie)) ?? RANG_AUTRES_CATEGORIES) ||
-        cleCategorie(a.categorie).localeCompare(cleCategorie(b.categorie), "fr") ||
-        (a.sous_famille ?? "").localeCompare(b.sous_famille ?? "", "fr", { sensitivity: "base" }) ||
+        comparerCategorieEtSousFamille(a, b) ||
         (a.couleur ? ORDRE_COULEURS[a.couleur] : ORDRE_COULEURS.blanc) - (b.couleur ? ORDRE_COULEURS[b.couleur] : ORDRE_COULEURS.blanc) ||
         a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" })
     );

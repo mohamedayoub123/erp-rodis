@@ -7,14 +7,22 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { matchesArticleSearch } from "@/lib/article-search";
 import { fetchAgregatsMpParArticle } from "@/lib/mp-agregats";
 import { calculerReportBesoin } from "@/lib/proposition-report";
-import { DELAI_LIVRAISON_MOIS, DUREE_OBJECTIF_MOIS, MOIS_A_COUVRIR, SECURITE_MOIS, objectifGlissant } from "@/lib/delai-commande-mp";
+import { comparerCategorieEtSousFamille } from "@/lib/ordre-categories-mp";
+import {
+  DELAI_LIVRAISON_MOIS,
+  SECURITE_MOIS,
+  anneeConsommationMois,
+  moisLivraison,
+  moisObjectif,
+  objectifMois,
+} from "@/lib/delai-commande-mp";
 
 type ArticleMpRow = {
   id: number;
   nom_article: string;
   categorie: string | null;
+  sous_famille: string | null;
   unite: string | null;
-  min_stock: number | null;
 };
 
 type BcLigneRow = {
@@ -33,13 +41,18 @@ type PropositionRow = {
   article_id: number;
   nom_article: string;
   categorie: string | null;
+  sous_famille: string | null;
   unite: string | null;
-  min_stock: number | null;
   stock_actuel: number;
   deja_en_commande: number;
+  // stock actuel + BC / import ; sortie de l'article le mois de la livraison l'annee passee (ex : avril 2026) ; sortie des 2 mois de plus
+  // (mai + juin 2026) ; objectif = les 3 additionnes (avec le detail mois par mois pour l'info-bulle)
+  stock_et_commande: number;
+  sortie_livraison: number;
+  sortie_securite: number;
   objectif: number;
-  // besoin du mois choisi seul, puis quantite reportee des mois d'avant non commandes (et le mois d'ou elle vient)
-  besoin_mois: number;
+  detail_objectif: string;
+  // quantite reportee des mois d'avant non commandes (et le mois d'ou elle vient)
   reporte: number;
   reporte_de: number | null;
   a_commander: number;
@@ -50,9 +63,6 @@ const MOIS_LONG = [
   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
 ];
 
-// Objectif d'un mois de depart (consommation du meme mois de l'annee passee, delai de livraison + mois a couvrir + securite) : meme calcul que
-// Besoin Commande MP et Surstock MP, voir lib/delai-commande-mp.ts.
-
 async function fetchAllArticlesMp() {
   const rows: ArticleMpRow[] = [];
   let from = 0;
@@ -61,7 +71,7 @@ async function fetchAllArticlesMp() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
-      .select("id, nom_article, categorie, unite, min_stock")
+      .select("id, nom_article, categorie, sous_famille, unite")
       .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
@@ -143,6 +153,17 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
     Number.isInteger(moisParam) && moisParam >= 1 && moisParam <= 12
       ? moisParam - 1
       : moisCourant;
+  // Une commande passee en <mois choisi> arrive 4 mois plus tard : commander en decembre 2026 = livraison en avril 2027. L'annee de la
+  // commande est celle du mois choisi, ou l'annee prochaine s'il est deja passe.
+  const anneeActuelle = new Date().getFullYear();
+  const anneeCommande = moisIdx >= moisCourant ? anneeActuelle : anneeActuelle + 1;
+  const moisLiv = moisLivraison(moisIdx);
+  const anneeLivraison = anneeCommande + (moisIdx + DELAI_LIVRAISON_MOIS >= 12 ? 1 : 0);
+  const livraisonAvecAnnee = `${MOIS_LONG[moisLiv]} ${anneeLivraison}`;
+  // Les sorties prises : le mois de livraison puis les 2 mois de plus, chacun le meme mois de l'annee passee (donnees des 12 derniers mois)
+  const [moisSortieLivraison, ...moisSortieSecurite] = moisObjectif(moisIdx);
+  const sortieLivraisonLibelle = `${MOIS_LONG[moisSortieLivraison]} ${anneeConsommationMois(moisSortieLivraison)}`;
+  const securiteLibelle = moisSortieSecurite.map((mois) => `${MOIS_LONG[mois]} ${anneeConsommationMois(mois)}`).join(" + ");
 
   const [
     { rows: articles, error: articlesError },
@@ -186,13 +207,13 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
   // Stock actuel = somme entree-sortie de TOUS les mouvements (meme calcul
   // que Stock MP). Consommation par mois calendaire = sortie des 12
   // derniers mois seulement, regroupee par mois (Janvier, Fevrier...).
-  // Objectif du mois choisi = besoin des 7 mois a partir de ce mois-la (4
-  // de delai de livraison + 1 mois a couvrir + 2 de securite, meme formule que
-  // Besoin Commande MP, avec la consommation du meme mois de l'annee
-  // passee - voir lib/delai-commande-mp.ts). A commander = objectif moins ce
-  // qu'il reste deja en stock ET moins ce qui est deja en commande/import
-  // (jamais negatif - si stock + deja-commande couvrent deja l'objectif,
-  // rien a commander, l'article n'apparait pas).
+  // Une commande passee le mois choisi arrive 4 mois plus tard. Objectif =
+  // la sortie du mois de livraison l'annee passee (ex : avril 2026 pour une
+  // commande de decembre) + 2 mois de plus (mai + juin 2026), meme formule
+  // que Besoin Commande MP - voir lib/delai-commande-mp.ts.
+  // A commander = objectif moins (stock actuel + ce qui est deja en
+  // commande BC / import) (jamais negatif - si stock + BC / import couvrent
+  // deja l'objectif, rien a commander, l'article n'apparait pas).
   // Stock et consommation par mois calendaire sont calcules directement par
   // la base (une ligne par article, voir lib/mp-agregats.ts) au lieu de
   // telecharger tous les mouvements.
@@ -212,24 +233,34 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
       const stockActuel = stockByArticle.get(article.id) ?? 0;
       const dejaEnCommande = dejaEnCommandeByArticle.get(article.id) ?? 0;
       const consommationParMoisCalendaire = consommationByArticleAndMois.get(article.id) ?? new Array(12).fill(0);
-      const objectif = objectifGlissant(consommationParMoisCalendaire, moisIdx);
+      const objectif = objectifMois(consommationParMoisCalendaire, moisIdx);
       // Le reste non commande des mois d'avant (a partir du mois en cours) est reporte sur le mois choisi - voir lib/proposition-report.ts
       const report = calculerReportBesoin(
-        (mois) => objectifGlissant(consommationParMoisCalendaire, mois) - stockActuel - dejaEnCommande,
+        (mois) => objectifMois(consommationParMoisCalendaire, mois) - (stockActuel + dejaEnCommande),
         moisCourant,
         moisIdx
       );
+
+      const sortieLivraison = consommationParMoisCalendaire[moisSortieLivraison];
+      const sortieSecurite = moisSortieSecurite.reduce((somme, mois) => somme + consommationParMoisCalendaire[mois], 0);
+      // Detail de l'objectif pour l'info-bulle : la sortie de chaque mois pris en compte, avec l'annee
+      const detailObjectif = [moisSortieLivraison, ...moisSortieSecurite]
+        .map((mois) => `${MOIS_LONG[mois]} ${anneeConsommationMois(mois)} : ${formatNumber(consommationParMoisCalendaire[mois])}`)
+        .join(" + ");
 
       return {
         article_id: article.id,
         nom_article: article.nom_article,
         categorie: article.categorie,
+        sous_famille: article.sous_famille,
         unite: article.unite,
-        min_stock: article.min_stock,
         stock_actuel: stockActuel,
         deja_en_commande: dejaEnCommande,
+        stock_et_commande: Math.round((stockActuel + dejaEnCommande) * 100) / 100,
+        sortie_livraison: Math.round(sortieLivraison * 100) / 100,
+        sortie_securite: Math.round(sortieSecurite * 100) / 100,
+        detail_objectif: detailObjectif,
         objectif,
-        besoin_mois: report.besoinMois,
         reporte: report.reporte,
         reporte_de: report.reporteDe,
         a_commander: report.aCommander,
@@ -238,7 +269,12 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
     .filter((row) => row.a_commander > 0)
     .filter((row) => !articleFilter || matchesArticleSearch(row.nom_article, articleFilter))
     .filter((row) => !categorieFilter || (row.categorie || "").toLowerCase().includes(categorieFilter))
-    .sort((a, b) => b.a_commander - a.a_commander);
+    // Meme classement que Stock Alert MP : la categorie (BASE, MP cosmetique, colorant cosmetique... puis les autres par nom), la
+    // sous-famille (par nom), puis le nom de l'article - voir lib/ordre-categories-mp.ts. L'Excel suit le meme ordre.
+    .sort(
+      (a, b) =>
+        comparerCategorieEtSousFamille(a, b) || a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" })
+    );
 
   const articleOptions = [...new Set(articles.map((article) => article.nom_article))].map((label, id) => ({
     id,
@@ -250,27 +286,31 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
   const hasFilters = Boolean(articleFilter || categorieFilter);
 
   const exportColumns = [
+    { label: "Famille (categorie)", key: "categorie" },
+    { label: "Sous famille", key: "sousFamille" },
     { label: "Article", key: "article" },
-    { label: "Categorie", key: "categorie" },
     { label: "Unite", key: "unite" },
     { label: "Stock actuel", key: "stockActuel" },
-    { label: "Deja en commande/import", key: "dejaEnCommande" },
-    { label: `Objectif (${MOIS_LONG[moisIdx]}, ${DUREE_OBJECTIF_MOIS} mois)`, key: "objectif" },
-    { label: "Stock min (3 mois)", key: "minStock" },
-    { label: `Besoin de ${MOIS_LONG[moisIdx]}`, key: "besoinMois" },
+    { label: "BC / import (pas encore recu)", key: "dejaEnCommande" },
+    { label: "Stock + BC / import", key: "stockEtCommande" },
+    { label: `Sortie ${sortieLivraisonLibelle} (livraison ${livraisonAvecAnnee})`, key: "sortieLivraison" },
+    { label: `+ ${SECURITE_MOIS} mois de plus (${securiteLibelle})`, key: "sortieSecurite" },
+    { label: "Objectif (livraison + 2 mois)", key: "objectif" },
     { label: "Reporte des mois d'avant (non commande)", key: "reporte" },
     { label: "A commander", key: "aCommander" },
   ];
 
   const exportRows = propositionRows.map((row) => ({
-    article: row.nom_article,
     categorie: row.categorie || "-",
+    sousFamille: row.sous_famille || "-",
+    article: row.nom_article,
     unite: row.unite || "-",
     stockActuel: row.stock_actuel,
     dejaEnCommande: row.deja_en_commande,
+    stockEtCommande: row.stock_et_commande,
+    sortieLivraison: row.sortie_livraison,
+    sortieSecurite: row.sortie_securite,
     objectif: row.objectif,
-    minStock: row.min_stock === null ? "-" : row.min_stock,
-    besoinMois: row.besoin_mois,
     reporte: row.reporte > 0 && row.reporte_de !== null ? `${row.reporte} (de ${MOIS_LONG[row.reporte_de]})` : "-",
     aCommander: row.a_commander,
   }));
@@ -287,12 +327,14 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
               Proposition de Commande MP
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Choisis le mois de la commande : pour chaque article, l&apos;objectif (consommation du meme
-              mois de l&apos;annee passee, sur les {DUREE_OBJECTIF_MOIS} mois a partir de ce mois - {DELAI_LIVRAISON_MOIS} mois
-              de delai de livraison + {MOIS_A_COUVRIR} mois a couvrir + {SECURITE_MOIS} mois de securite, meme calcul que Besoin Commande MP) est compare au
-              stock actuel et a ce qui est deja en commande/import (pas encore receptionne). Seuls
-              les articles ou stock + deja-commande ne suffisent pas apparaissent, avec la quantite
-              a commander proposee (objectif moins stock actuel moins deja en commande/import).
+              Choisis le mois de la commande : elle arrive {DELAI_LIVRAISON_MOIS} mois plus tard (commander en {MOIS_LONG[moisIdx]} = livraison
+              en {livraisonAvecAnnee}). L&apos;objectif = la sortie de l&apos;article le mois de la livraison l&apos;annee passee
+              ({sortieLivraisonLibelle}) + {SECURITE_MOIS} mois de plus ({securiteLibelle}). On part du stock actuel, on y
+              ajoute ce qui est deja en commande (BC) ou en import et pas encore recu, et on retire cette somme de
+              l&apos;objectif (meme calcul que Besoin Commande MP). Seuls les articles ou stock + BC / import ne suffisent
+              pas apparaissent, avec la quantite a commander. Classement comme Stock Alert MP :
+              famille (BASE, MP cosmetique, colorant cosmetique, article de conditionnement cosmetique, flacons verre, MP
+              plastique, colorant plastique, puis les autres), puis sous famille, puis article.
               Ce qui devait etre commande un mois d&apos;avant (a partir du mois en cours) et ne l&apos;a pas ete est
               reporte sur le mois choisi : colonne &quot;Reporte des mois d&apos;avant&quot;. A commander = besoin du mois +
               reporte, ce qui revient a la plus grosse quantite non commandee depuis le mois en cours.
@@ -372,14 +414,28 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
               <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
                 <thead className="bg-slate-50 text-slate-950">
                   <tr>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Famille (categorie)</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Sous famille</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Article</th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Categorie</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock actuel</th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Deja en commande/import</th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Objectif ({MOIS_LONG[moisIdx]}, {DUREE_OBJECTIF_MOIS} mois)</th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock min (3 mois)</th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Besoin de {MOIS_LONG[moisIdx]}</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
+                      BC / import
+                      <span className="block text-xs font-normal text-slate-400">pas encore recu</span>
+                    </th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock + BC / import</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
+                      Sortie {sortieLivraisonLibelle}
+                      <span className="block text-xs font-normal text-slate-400">livraison {livraisonAvecAnnee}</span>
+                    </th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
+                      + {SECURITE_MOIS} mois de plus
+                      <span className="block text-xs font-normal text-slate-400">{securiteLibelle}</span>
+                    </th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
+                      Objectif
+                      <span className="block text-xs font-normal text-slate-400">livraison + {SECURITE_MOIS} mois</span>
+                    </th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
                       Reporte des mois d&apos;avant
                       <span className="block text-xs font-normal text-slate-400">pas commande</span>
@@ -390,16 +446,18 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
                 <tbody>
                   {propositionRows.map((row) => (
                     <tr key={row.article_id} className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
                       <td className="px-6 py-4 text-slate-600">{row.categorie || "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">{row.sous_famille || "-"}</td>
+                      <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.stock_actuel)}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.deja_en_commande)}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.objectif)}</td>
-                      <td className="px-6 py-4 text-slate-600">
-                        {row.min_stock === null ? "-" : formatNumber(row.min_stock)}
+                      <td className="px-6 py-4 text-slate-600">{row.deja_en_commande > 0 ? formatNumber(row.deja_en_commande) : "-"}</td>
+                      <td className="px-6 py-4 font-semibold text-slate-800">{formatNumber(row.stock_et_commande)}</td>
+                      <td className="px-6 py-4 font-semibold text-sky-700">{formatNumber(row.sortie_livraison)}</td>
+                      <td className="px-6 py-4 font-semibold text-sky-700">{formatNumber(row.sortie_securite)}</td>
+                      <td title={`${row.detail_objectif} = ${formatNumber(row.objectif)}`} className="px-6 py-4 text-slate-600">
+                        {formatNumber(row.objectif)}
                       </td>
-                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.besoin_mois)}</td>
                       <td className="whitespace-nowrap px-6 py-4 font-semibold text-amber-700">
                         {row.reporte > 0 && row.reporte_de !== null ? (
                           <>
