@@ -21,6 +21,94 @@ function revalidateSuiviPages() {
   planifierSynchroVrac();
 }
 
+type DetailLot = { code: string; qt_vrac: number | null; qt_carton: number | null };
+
+// Codes d'une ligne : numero_lot_detail s'il existe, sinon numero_lot separe par des virgules
+function codesDeLaLigne(ligne: Record<string, unknown>): string[] {
+  const detail = Array.isArray(ligne.numero_lot_detail) ? (ligne.numero_lot_detail as DetailLot[]) : [];
+  const depuisDetail = detail.map((entree) => String(entree?.code ?? "").trim()).filter(Boolean);
+  if (depuisDetail.length > 0) return depuisDetail;
+  return String(ligne.numero_lot ?? "")
+    .split(",")
+    .map((code) => code.trim())
+    .filter(Boolean);
+}
+
+// Tables ou les saisies d'un code d'une ligne sont rangees (une ligne par ligne de programme + code)
+const TABLES_SAISIES_DU_CODE = [
+  "production_vrac_entries",
+  "production_carton_entries",
+  "production_emballage_entries",
+  "production_rapports",
+  "production_code_termine",
+  "conditionnement_codes_vrac",
+] as const;
+
+// Efface UN code d'une ligne qui en porte plusieurs : ses saisies (Fabrication, Conditionnement, Emballage, fiche, Fin programme, choix du
+// code vrac) et son nom dans la ligne ; les autres codes de la ligne et leurs saisies ne bougent pas. Tout ce qui est efface est lu d'abord
+// et gardé dans le journal (module ProgrammeLignes, action "modification", avec la ligne et toutes les saisies) pour pouvoir le ramener.
+async function supprimerUnCodeDeLaLigne(
+  ligneAvant: Record<string, unknown>,
+  code: string,
+  currentUser: string | null
+): Promise<{ ok: boolean; message?: string }> {
+  const ligneId = Number(ligneAvant.id);
+
+  const saisies: Record<string, Record<string, unknown>[]> = {};
+  for (const table of TABLES_SAISIES_DU_CODE) {
+    const { data, error } = await supabaseServer.from(table).select("*").eq("programme_ligne_id", ligneId).eq("code", code);
+    if (error) return { ok: false, message: error.message };
+    saisies[table] = (data ?? []) as Record<string, unknown>[];
+  }
+
+  const { error: cleanupError } = await supprimerToutesTracesProductionPourLigne(ligneId, currentUser, code);
+  if (cleanupError) return { ok: false, message: cleanupError };
+  const { error: codeVracError } = await supabaseServer
+    .from("conditionnement_codes_vrac")
+    .delete()
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code);
+  if (codeVracError) return { ok: false, message: codeVracError.message };
+
+  // La ligne ne porte plus ce code ; ses totaux (cartons et vrac prevus) sont recalcules sur les codes restants quand le detail est connu
+  const codesRestants = codesDeLaLigne(ligneAvant).filter((autre) => autre !== code);
+  const detail = Array.isArray(ligneAvant.numero_lot_detail) ? (ligneAvant.numero_lot_detail as DetailLot[]) : [];
+  const detailRestant = detail.filter((entree) => String(entree?.code ?? "").trim() !== code);
+  const modifications: Record<string, unknown> = { numero_lot: codesRestants.join(", ") };
+  if (detail.length > 0) {
+    modifications.numero_lot_detail = detailRestant;
+    const somme = (champ: "qt_carton" | "qt_vrac") =>
+      detailRestant.every((entree) => entree[champ] !== null && entree[champ] !== undefined && Number.isFinite(Number(entree[champ])))
+        ? detailRestant.reduce((total, entree) => total + Number(entree[champ]), 0)
+        : null;
+    const cartons = somme("qt_carton");
+    const vrac = somme("qt_vrac");
+    if (cartons !== null) modifications.qt_carton = cartons;
+    if (vrac !== null) modifications.vrac_a_fabriquer = vrac;
+  }
+
+  const nombre = (table: (typeof TABLES_SAISIES_DU_CODE)[number]) => saisies[table].length;
+  await logAudit({
+    utilisateur: currentUser,
+    module: "ProgrammeLignes",
+    action: "modification",
+    cible: `${String(ligneAvant.produit ?? `#${ligneId}`)} - ${code}`,
+    resume:
+      `Code ${code} supprime de la ligne ${ligneId} (${String(ligneAvant.produit ?? "")}) depuis le Dashboard : ` +
+      `${nombre("production_vrac_entries")} saisie(s) Fabrication, ${nombre("production_carton_entries")} Conditionnement, ` +
+      `${nombre("production_emballage_entries")} Emballage, ${nombre("production_rapports")} fiche(s), ${nombre("production_code_termine")} Fin programme, ` +
+      `${nombre("conditionnement_codes_vrac")} choix de code vrac effacee(s) ; les autres codes de la ligne (${codesRestants.join(", ")}) ne sont pas touches`,
+    avant: { ligne: ligneAvant, code, saisies },
+    apres: { ligneId, ...modifications },
+  });
+
+  const { error: ligneError } = await supabaseServer.from("programme_lignes").update(modifications).eq("id", ligneId);
+  if (ligneError) return { ok: false, message: ligneError.message };
+
+  revalidateSuiviPages();
+  return { ok: true };
+}
+
 // Supprime TOUT le programme (la ligne entiere - tous ses codes, toutes
 // les etapes deja saisies : Fabrication, Conditionnement, Emballage,
 // Rapports, marqueurs Besoin valide, et leurs ecritures comptables)
@@ -56,6 +144,25 @@ export async function deleteProgrammeLigneDashboardAction(
 
   if (fetchError) {
     return { ok: false, message: fetchError.message };
+  }
+
+  // Une ligne qui porte plusieurs codes : on n'efface QUE le code de la ligne cliquee et ses saisies, jamais les autres codes de la ligne
+  // (cas reel du 25-11 : la corbeille d'AB1209V a fait disparaitre AB1208V, qui etait sur la meme ligne). Un seul code : la ligne entiere
+  // part, comme avant.
+  const codeClique = String(formData.get("code") || "").trim();
+  if (codeClique && ligneAvant) {
+    const ligneBrute = ligneAvant as Record<string, unknown>;
+    const codesLigne = codesDeLaLigne(ligneBrute);
+    // Page pas a jour : le code clique n'est plus sur la ligne -> on ne supprime RIEN (surtout pas toute la ligne par defaut)
+    if (codesLigne.length > 0 && !codesLigne.includes(codeClique)) {
+      return {
+        ok: false,
+        message: `Le code ${codeClique} n'est plus sur cette ligne (la page n'est peut-etre pas a jour) : rien n'a ete supprime. Recharge la page.`,
+      };
+    }
+    if (codesLigne.length > 1) {
+      return supprimerUnCodeDeLaLigne(ligneBrute, codeClique, currentUser);
+    }
   }
 
   const { error: cleanupError } = await supprimerToutesTracesProductionPourLigne(ligneId, currentUser);

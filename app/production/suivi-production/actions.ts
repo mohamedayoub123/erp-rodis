@@ -645,16 +645,25 @@ async function deleteCodeTermineEtReserves(
 // separe et explicite (Gestion Stock PF), jamais automatique ici.
 export async function supprimerToutesTracesProductionPourLigne(
   ligneId: number,
-  currentUser: string | null
+  currentUser: string | null,
+  // Un seul code : seules les traces de CE code de la ligne sont effacees, les autres codes de la ligne ne sont pas touches (suppression
+  // depuis le Dashboard : on n'efface que ce qu'on a clique). Sans code : toute la ligne, comme avant.
+  code?: string
 ): Promise<{ error: string | null }> {
+  let vracQuery = supabaseServer.from("production_vrac_entries").select("id, code").eq("programme_ligne_id", ligneId);
+  let cartonQuery = supabaseServer.from("production_carton_entries").select("id, code").eq("programme_ligne_id", ligneId);
+  let emballageQuery = supabaseServer.from("production_emballage_entries").select("id").eq("programme_ligne_id", ligneId);
+  let rapportQuery = supabaseServer.from("production_rapports").select("id, code").eq("programme_ligne_id", ligneId);
+  let codeTermineQuery = supabaseServer.from("production_code_termine").select("code").eq("programme_ligne_id", ligneId);
+  if (code) {
+    vracQuery = vracQuery.eq("code", code);
+    cartonQuery = cartonQuery.eq("code", code);
+    emballageQuery = emballageQuery.eq("code", code);
+    rapportQuery = rapportQuery.eq("code", code);
+    codeTermineQuery = codeTermineQuery.eq("code", code);
+  }
   const [{ data: vracRows }, { data: cartonRows }, { data: emballageRows }, { data: rapportRows }, { data: codeTermineRows }] =
-    await Promise.all([
-      supabaseServer.from("production_vrac_entries").select("id, code").eq("programme_ligne_id", ligneId),
-      supabaseServer.from("production_carton_entries").select("id, code").eq("programme_ligne_id", ligneId),
-      supabaseServer.from("production_emballage_entries").select("id").eq("programme_ligne_id", ligneId),
-      supabaseServer.from("production_rapports").select("id, code").eq("programme_ligne_id", ligneId),
-      supabaseServer.from("production_code_termine").select("code").eq("programme_ligne_id", ligneId),
-    ]);
+    await Promise.all([vracQuery, cartonQuery, emballageQuery, rapportQuery, codeTermineQuery]);
 
   const vrac = (vracRows ?? []) as { id: number; code: string }[];
   const carton = (cartonRows ?? []) as { id: number; code: string }[];

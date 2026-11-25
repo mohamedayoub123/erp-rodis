@@ -882,6 +882,7 @@ export default async function PlanningDashboardPage({
                             <DeleteProgrammeLigneButton
                               ligneId={row.ligne.id}
                               produit={vracLabelFromName(row.ligne.produit) || row.ligne.produit || row.code}
+                              code={row.code}
                               deleteAction={deleteProgrammeLigneDashboardAction}
                             />
                           </td>
@@ -1012,6 +1013,7 @@ export default async function PlanningDashboardPage({
                             <DeleteProgrammeLigneButton
                               ligneId={row.ligne.id}
                               produit={row.ligne.produit || row.code}
+                              code={row.code}
                               deleteAction={deleteProgrammeLigneDashboardAction}
                             />
                           </td>
@@ -1122,6 +1124,7 @@ export default async function PlanningDashboardPage({
                             <DeleteProgrammeLigneButton
                               ligneId={row.ligne.id}
                               produit={row.ligne.produit || row.code}
+                              code={row.code}
                               deleteAction={deleteProgrammeLigneDashboardAction}
                             />
                           </td>

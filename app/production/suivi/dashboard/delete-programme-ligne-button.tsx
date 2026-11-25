@@ -12,17 +12,23 @@ export function DeleteProgrammeLigneButton({
   ligneId,
   produit,
   deleteAction,
+  code,
 }: {
   ligneId: number;
   produit: string;
   deleteAction: (formData: FormData) => Promise<{ ok: boolean; message?: string }>;
+  // Dashboard : le code de la ligne cliquee. Si la ligne porte plusieurs codes, SEUL ce code et ses saisies sont effaces (les autres
+  // codes de la ligne ne bougent pas) ; s'il est le seul code de la ligne, la ligne part avec lui. Sans code : tout le programme.
+  code?: string;
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
 
   function handleClick() {
     const confirmed = window.confirm(
-      `Supprimer tout le programme "${produit}" ? Ca efface la ligne ET tout ce qui a deja ete saisi dessus (Fabrication, Conditionnement, Emballage, tous les codes). Cette action est definitive.`
+      code
+        ? `Supprimer le code ${code} de "${produit}" ? Ca efface seulement ce code et ce qui a deja ete saisi dessus (Fabrication, Conditionnement, Emballage). Les autres codes de la ligne ne sont pas touches. Si ${code} est le seul code de la ligne, la ligne est supprimee aussi. Tout est garde dans l'historique.`
+        : `Supprimer tout le programme "${produit}" ? Ca efface la ligne ET tout ce qui a deja ete saisi dessus (Fabrication, Conditionnement, Emballage, tous les codes). Cette action est definitive.`
     );
     if (!confirmed) return;
 
@@ -30,6 +36,7 @@ export function DeleteProgrammeLigneButton({
     startTransition(async () => {
       const formData = new FormData();
       formData.set("ligne_id", String(ligneId));
+      if (code) formData.set("code", code);
       const result = await deleteAction(formData);
       if (result && !result.ok) {
         setError(result.message || "Erreur pendant la suppression.");
@@ -43,8 +50,8 @@ export function DeleteProgrammeLigneButton({
         type="button"
         onClick={handleClick}
         disabled={isPending}
-        title="Supprimer tout ce programme"
-        aria-label="Supprimer tout ce programme"
+        title={code ? `Supprimer le code ${code}` : "Supprimer tout ce programme"}
+        aria-label={code ? `Supprimer le code ${code}` : "Supprimer tout ce programme"}
         className="flex h-8 w-8 items-center justify-center rounded-full border border-red-200 text-red-700 transition hover:bg-red-50 disabled:opacity-60"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
