@@ -17,6 +17,7 @@ import {
 } from "../actions";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser, getDashboardProductionUser, isAdminUser } from "@/lib/stock-auth";
 import { cleChoix, lireTousLesChoix, type ChoixCodeVrac } from "@/lib/conditionnement-codes-vrac";
+import { planifierSynchroVrac } from "@/lib/vrac-stock-depot-b";
 import { LotCodeCell } from "./lot-code-cell";
 import { CodeVracCell } from "./code-vrac-cell";
 import { ChangerContenanceCell } from "./changer-contenance-cell";
@@ -173,6 +174,8 @@ export default async function PlanningDashboardPage({
   // Choix de code vrac + vrac consomme (calcul avec les cartons) : lances tout de suite, en parallele avec le chargement principal, au lieu
   // d'attendre la fin de celui-ci (la lecture ne depend de rien d'autre).
   const choixPromise = lireTousLesChoix();
+  // Rattrapage : au plus un recalcul du stock de vrac du Depot B toutes les 10 minutes, apres la reponse (les saisies le recalculent deja)
+  planifierSynchroVrac(600_000);
   const [currentUser, { data: dashboardData, error: dashboardError }] = await Promise.all([
     getCurrentStockUser(),
     fetchDashboardData(),

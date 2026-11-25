@@ -6,6 +6,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser, getDashboardProductionUser, isAdminUser } from "@/lib/stock-auth";
 import { fetchLotsInDepot } from "@/app/depots/transfer-order/stock-lots";
 import { logAudit } from "@/lib/audit-log";
+import { planifierSynchroVrac } from "@/lib/vrac-stock-depot-b";
 import { supprimerToutesTracesProductionPourLigne } from "../suivi-production/actions";
 import { lireQuantitesParCode, SEUIL_FIN_PROGRAMME_CARTONS, type LigneQuantites } from "./dashboard/quantites-fin-programme";
 
@@ -16,6 +17,8 @@ function revalidateSuiviPages() {
   revalidatePath("/production/suivi/en-cours");
   revalidatePath("/production/suivi-production");
   revalidatePath("/production/rapport/ecarts");
+  // Cartons ajoutes / supprimes, ligne supprimee, code renomme : le stock de vrac du Depot B se recalcule apres la reponse
+  planifierSynchroVrac();
 }
 
 // Supprime TOUT le programme (la ligne entiere - tous ses codes, toutes

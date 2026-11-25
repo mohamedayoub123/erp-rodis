@@ -11,6 +11,7 @@ import { logAudit } from "@/lib/audit-log";
 import { cleChoix, codesVracBloquesParQualite, lireChoixLigneCode, messageSiVracInsuffisant } from "@/lib/conditionnement-codes-vrac";
 import { trouverMessageStockNegatif } from "@/lib/controle-stock-negatif";
 import { fetchVracDepotBParArticle } from "@/lib/vrac-depot-b";
+import { planifierSynchroVrac } from "@/lib/vrac-stock-depot-b";
 import { SOURCE_VRAC_A_RECUPERER, noteVracEnRecuperationFabrication } from "@/lib/vrac-a-recuperer";
 import {
   encoderRecuperations,
@@ -50,6 +51,8 @@ function parseOptionalText(formData: FormData, name: string) {
 function revalidateRapportPages() {
   revalidatePath("/production/suivi-production");
   revalidatePath("/production/suivi/dashboard");
+  // Fabrication, cartons, Test labo : le stock de vrac du Depot B se recalcule apres la reponse (lib/vrac-stock-depot-b.ts)
+  planifierSynchroVrac();
 }
 
 const MESSAGE_DEJA_PAR_LIGNE =
@@ -535,6 +538,7 @@ export async function deleteSuiviProductionRowAction(targets: {
   revalidatePath("/production/suivi-production");
   revalidatePath("/production/suivi/dashboard");
   if (supprimeFabrication) revalidatePath("/production/vrac-a-recuperer");
+  planifierSynchroVrac();
 }
 
 // production_mp_reserve reference production_code_termine (pas

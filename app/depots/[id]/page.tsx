@@ -20,6 +20,7 @@ import { matchesArticleSearch } from "@/lib/article-search";
 import { lireArticlesMpPourFormulaires } from "@/lib/articles-mp-liste";
 import { lireArticlesPfListe } from "@/lib/articles-pf-liste";
 import { lireStockDepot } from "./stock-depot";
+import { planifierSynchroVrac } from "@/lib/vrac-stock-depot-b";
 
 type DepotRow = { id: number; nom: string };
 function formatNumber(value: number) {
@@ -87,6 +88,9 @@ export default async function DepotDetailPage({
   if (!depot) {
     notFound();
   }
+
+  // Le Depot B porte le vrac fabrique : rattrapage du calcul (au plus un toutes les 10 minutes, apres la reponse)
+  if (/^depot b$/i.test(depot.nom.trim())) planifierSynchroVrac(600_000);
 
   const articlePfById = new Map(articlesPf.map((a) => [a.id, a]));
   const articleMpById = new Map(articlesMp.map((a) => [a.id, a]));

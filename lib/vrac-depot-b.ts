@@ -1,6 +1,7 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { lireStockDepot } from "@/app/depots/[id]/stock-depot";
 import { SOURCE_VRAC_A_RECUPERER } from "@/lib/vrac-a-recuperer";
+import { lireSoldesVracProduction } from "@/lib/vrac-stock-depot-b";
 
 export type VracDepotB = { numeroLot: string; solde: number; libelle: string; articleId: number };
 
@@ -39,12 +40,16 @@ export async function fetchVracDepotBParArticle(options?: { inclureStockNul?: bo
   }
   if (lotsModule.size === 0) return [];
 
-  const stock = await lireStockDepot(depotBId);
+  // Le stock de vrac fabrique (miroir de la production : lib/vrac-stock-depot-b.ts) porte le meme article et le meme code que le vrac a
+  // recuperer mais n'est PAS du vrac a recuperer : son solde est retire ici, seul le vrac du module reste propose.
+  const [stock, soldesProduction] = await Promise.all([lireStockDepot(depotBId), lireSoldesVracProduction(depotBId)]);
   // Par defaut seuls les lots avec du stock (un lot a 0 n'est ni visible ni choisissable) ; inclureStockNul : verifications serveur
-  const lots = stock.soldePf.filter(
-    (lot) =>
-      (options?.inclureStockNul || lot.solde > 1e-9) && lot.numeroLot && lotsModule.has(`${lot.articleId}::${lot.numeroLot}`)
-  );
+  const lots = stock.soldePf
+    .map((lot) => ({ ...lot, solde: lot.solde - (soldesProduction.get(`${lot.articleId}::${lot.numeroLot}`) ?? 0) }))
+    .filter(
+      (lot) =>
+        (options?.inclureStockNul || lot.solde > 1e-9) && lot.numeroLot && lotsModule.has(`${lot.articleId}::${lot.numeroLot}`)
+    );
   if (lots.length === 0) return [];
 
   const idsStock = [...new Set(lots.map((lot) => lot.articleId))];

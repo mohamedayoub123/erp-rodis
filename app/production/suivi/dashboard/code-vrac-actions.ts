@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { logAudit } from "@/lib/audit-log";
+import { planifierSynchroVrac } from "@/lib/vrac-stock-depot-b";
 import {
   QUANTITE_VRAC_IGNOREE,
   lireCodesVracPrets,
@@ -106,6 +107,7 @@ export async function ajouterCodeVracConditionnementAction(ligneId: number, code
     });
 
     revalidatePath("/production/suivi/dashboard");
+    planifierSynchroVrac();
     return {
       ok: true,
       message: `${candidat.code} choisi (${formaterKg(candidat.disponible)} kg disponibles : le vrac se decompte tout seul avec les cartons).`,
@@ -158,6 +160,7 @@ export async function retirerCodeVracConditionnementAction(choixId: number): Pro
     });
 
     revalidatePath("/production/suivi/dashboard");
+    planifierSynchroVrac();
     return { ok: true, message: `${choix.code_vrac} retire.` };
   } catch (erreur) {
     return { ok: false, message: erreur instanceof Error ? erreur.message : "Suppression impossible." };

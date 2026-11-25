@@ -4,6 +4,7 @@ import {
   type ArticleVrac,
   type VracEnregistre,
 } from "@/lib/vrac-a-recuperer";
+import { SOURCE_VRAC_PRODUCTION } from "@/lib/vrac-stock-depot-b";
 
 export const LIGNES_AFFICHEES = 150;
 
@@ -44,7 +45,7 @@ export async function lireSoldesDepotB(depotBId: number, articleIds: number[]): 
     while (true) {
       const { data, error } = await supabaseServer
         .from("lots_stock")
-        .select("article_id, numero_lot, qte_entree, qte_sortie")
+        .select("article_id, numero_lot, qte_entree, qte_sortie, source_import")
         .eq("depot_id", depotBId)
         .in("article_id", lot)
         .order("id", { ascending: true })
@@ -56,8 +57,11 @@ export async function lireSoldesDepotB(depotBId: number, articleIds: number[]): 
         numero_lot: string | null;
         qte_entree: number | null;
         qte_sortie: number | null;
+        source_import: string | null;
       }[];
       for (const l of lignes) {
+        // Le vrac fabrique (miroir de la production, lib/vrac-stock-depot-b.ts) n'est pas du vrac a recuperer : hors de ces soldes
+        if (l.source_import === SOURCE_VRAC_PRODUCTION) continue;
         const cle = `${l.article_id}|${l.numero_lot ?? ""}`;
         soldes.set(cle, (soldes.get(cle) ?? 0) + Number(l.qte_entree ?? 0) - Number(l.qte_sortie ?? 0));
       }

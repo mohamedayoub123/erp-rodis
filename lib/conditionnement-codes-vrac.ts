@@ -139,7 +139,7 @@ async function lireParPaquetsEnParallele<T>(table: string, colonnes: string, col
 
 // Code sous lequel une entree de cartons compte pour sa ligne : son propre code ; une ancienne entree sans code (code vide) compte pour le
 // code de la ligne quand elle n'en a qu'un (ou "-" quand elle n'en a aucun), sinon elle n'est rattachee a aucun code.
-function codeEffectifEntree(codeEntree: string | null, numeroLotLigne: string | null): string {
+export function codeEffectifEntree(codeEntree: string | null, numeroLotLigne: string | null): string {
   const propre = (codeEntree ?? "").trim();
   if (propre) return propre;
   const codes = (numeroLotLigne ?? "").split(",").map((c) => c.trim()).filter(Boolean);
@@ -218,7 +218,7 @@ async function lirePar<T>(table: string, colonnes: string, ligneIds: number[]): 
   return lignes;
 }
 
-type ArticleInfo = {
+export type ArticleInfo = {
   id: number;
   nom_article: string | null;
   vrac_article_id: number | null;
@@ -226,7 +226,7 @@ type ArticleInfo = {
   piece_par_carton: number | null;
 };
 
-function kgParCarton(article: ArticleInfo | undefined): number {
+export function kgParCarton(article: ArticleInfo | undefined): number {
   const contenance = Number(article?.contenance ?? 0);
   const pieces = Number(article?.piece_par_carton ?? 0);
   return contenance > 0 && pieces > 0 ? contenance * pieces : 0;
