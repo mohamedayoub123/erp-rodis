@@ -834,7 +834,16 @@ export default async function PlanningDashboardPage({
                         </td>
                         <td className="px-4 py-3 text-slate-700">
                           {renderLotCode(row.ligne.id, row.code)}
-                          {codeDivisible(row) ? <DiviserCodeCell ligneId={row.ligne.id} code={row.code} vracPrevu={row.vracPrevu} /> : null}
+                          {codeDivisible(row) ? (
+                            <DiviserCodeCell
+                              ligneId={row.ligne.id}
+                              code={row.code}
+                              vracPrevu={row.vracPrevu}
+                              autresCodes={(row.ligne.numero_lot_detail ?? [])
+                                .filter((lot) => lot.code !== row.code)
+                                .map((lot) => ({ code: lot.code, vrac: Number(lot.qt_vrac ?? 0) }))}
+                            />
+                          ) : null}
                         </td>
                         <td className="px-4 py-3 text-slate-700">{row.pdLabel}</td>
                         <td className="px-4 py-3">

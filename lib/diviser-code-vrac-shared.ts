@@ -1,7 +1,8 @@
 import { computeQtCarton } from "@/lib/dispatcher-shared";
 
 // Dashboard > Fabrication : DIVISER un code (lot) en 2 - ex : le PD a 2 codes de 3000 kg, mais la fabrication se fait finalement sur une machine
-// de plus petite capacite : le code AA1 (3000 kg) devient AA1 (1500 kg) + un NOUVEAU code (1500 kg) choisi par la personne.
+// de plus petite capacite : le code AA1 (3000 kg) devient AA1 (1500 kg) + un NOUVEAU code (1500 kg) choisi par la personne. Si le code choisi
+// est DEJA sur la ligne, la quantite s'AJOUTE sur lui (AA1 3000 + AA2 1500, deplacer 500 : AA1 2500 + AA2 2000).
 // Fonctions pures (aucun acces base) : partagees entre le serveur (lib/diviser-code-vrac.ts) et le bouton du Dashboard.
 
 export type EntreeDetailLot = { code: string; qt_vrac: number | null; qt_carton: number | null };
@@ -53,7 +54,11 @@ export type PlanDivision = {
   vracAvant: number;
   cartonsAvant: number | null;
   gardee: EntreeDetailLot;
+  // le code qui recoit la quantite, avec ses quantites APRES la division
   nouvelle: EntreeDetailLot;
+  quantiteAjoutee: number;
+  // le code qui recoit existait deja sur la ligne : ses quantites AVANT la division (null = c'est un nouveau code)
+  ajoutSur: EntreeDetailLot | null;
 };
 
 // Calcule la division d'UN code d'une ligne de programme : le vrac prevu total de la ligne ne change pas, seule sa repartition par code change.
@@ -74,8 +79,10 @@ export function construireDivision(args: {
   const nouveau = lireNouveauCode(args.nouveauCode);
   if (!nouveau.ok) return nouveau;
   const nouveauCode = nouveau.code;
-  if (codes.some((existant) => existant.toLowerCase() === nouveauCode.toLowerCase())) {
-    return { ok: false, message: `Le code ${nouveauCode} existe deja sur cette ligne.` };
+  // Code deja sur la ligne (ecrit en majuscules ou non) : la quantite s'ajoute sur lui, avec son ecriture exacte
+  const existant = codes.find((lot) => lot.toLowerCase() === nouveauCode.toLowerCase()) ?? null;
+  if (existant === code) {
+    return { ok: false, message: `${code} est le code que tu divises : ecris un autre code.` };
   }
 
   // Repartition de depart par code. Une ligne a UN SEUL code : le Dashboard affiche le vrac et les cartons de la ligne (le detail ne compte pas).
@@ -114,8 +121,19 @@ export function construireDivision(args: {
   }
 
   const gardee: EntreeDetailLot = { code, qt_vrac: quantiteGardee, qt_carton: cartonsGardes };
-  const nouvelle: EntreeDetailLot = { code: nouveauCode, qt_vrac: quantiteNouveau, qt_carton: cartonsNouveau };
-  const detailApres = base.flatMap((lot) => (lot.code === code ? [gardee, nouvelle] : [lot]));
+  const ajoutSur = existant ? base.find((e) => e.code === existant)! : null;
+  let nouvelle: EntreeDetailLot = { code: nouveauCode, qt_vrac: quantiteNouveau, qt_carton: cartonsNouveau };
+  if (ajoutSur) {
+    const total = arrondi2(Number(ajoutSur.qt_vrac ?? 0) + quantiteNouveau);
+    // cartons recalcules sur le total ; sans contenance / pieces par carton : ses cartons + les cartons retires au code d'origine
+    const cartonsTotal =
+      computeQtCarton(total, args.contenance, args.piecesParCarton) ??
+      (cartonsNouveau === null || ajoutSur.qt_carton === null || ajoutSur.qt_carton === undefined ? null : Number(ajoutSur.qt_carton) + cartonsNouveau);
+    nouvelle = { code: ajoutSur.code, qt_vrac: total, qt_carton: cartonsTotal };
+  }
+  const detailApres = ajoutSur
+    ? base.map((lot) => (lot.code === code ? gardee : lot.code === ajoutSur.code ? nouvelle : lot))
+    : base.flatMap((lot) => (lot.code === code ? [gardee, nouvelle] : [lot]));
   const toutesCartonsConnus = detailApres.every((lot) => lot.qt_carton !== null && lot.qt_carton !== undefined);
 
   return {
@@ -128,6 +146,8 @@ export function construireDivision(args: {
       cartonsAvant: entree.qt_carton ?? null,
       gardee,
       nouvelle,
+      quantiteAjoutee: quantiteNouveau,
+      ajoutSur,
     },
   };
 }

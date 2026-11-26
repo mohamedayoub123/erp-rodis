@@ -7,8 +7,20 @@ import { diviserCodeVracAction } from "./diviser-code-actions";
 
 // Colonne "N Lot" de la Fabrication (Dashboard) : le code + un petit bouton "Diviser" pour couper ce code en 2 (ex : AA1 = 3000 kg devient
 // AA1 = 1500 kg + un nouveau code = 1500 kg, quand la fabrication se fait finalement sur une machine de plus petite capacite). La personne choisit
-// la quantite du nouveau code et son nom ; le reste du vrac reste sur le code d'origine. Refuse par le serveur des que le code est deja commence.
-export function DiviserCodeCell({ ligneId, code, vracPrevu }: { ligneId: number; code: string; vracPrevu: number }) {
+// la quantite du nouveau code et son nom ; le reste du vrac reste sur le code d'origine. Si le code ecrit est deja sur la ligne, la quantite
+// s'ajoute sur lui. Refuse par le serveur des que le code divise est deja commence.
+export function DiviserCodeCell({
+  ligneId,
+  code,
+  vracPrevu,
+  autresCodes,
+}: {
+  ligneId: number;
+  code: string;
+  vracPrevu: number;
+  // les autres codes de la meme ligne, avec leur vrac prevu
+  autresCodes: { code: string; vrac: number }[];
+}) {
   const router = useRouter();
   const [ouvert, setOuvert] = useState(false);
   const [quantite, setQuantite] = useState("");
@@ -18,6 +30,8 @@ export function DiviserCodeCell({ ligneId, code, vracPrevu }: { ligneId: number;
 
   const lectureQuantite = lireQuantiteNouveau(quantite, vracPrevu);
   const reste = quantite.trim() && lectureQuantite.ok ? lectureQuantite.quantiteGardee : null;
+  const codeExistant = (saisi: string) => autresCodes.find((autre) => autre.code.toLowerCase() === saisi.trim().toLowerCase()) ?? null;
+  const existant = codeExistant(nouveauCode);
 
   function ouvrir() {
     // la moitie par defaut : le cas courant (un code coupe en 2 morceaux egaux)
@@ -38,9 +52,13 @@ export function DiviserCodeCell({ ligneId, code, vracPrevu }: { ligneId: number;
       setMessage(c.message);
       return;
     }
+    const dejaLa = codeExistant(c.code);
+    const recoit = dejaLa
+      ? `${dejaLa.code} (deja sur la ligne) recoit ${q.quantiteNouveau} kg de plus : ${arrondi2(dejaLa.vrac)} + ${q.quantiteNouveau} = ${arrondi2(dejaLa.vrac + q.quantiteNouveau)} kg`
+      : `${c.code} (nouveau code) prend ${q.quantiteNouveau} kg`;
     if (
       !window.confirm(
-        `Diviser le code ${code} (${arrondi2(vracPrevu)} kg) ?\n\n${code} garde ${q.quantiteGardee} kg\n${c.code} (nouveau code) prend ${q.quantiteNouveau} kg\n\nLes cartons prevus de chaque code sont recalcules.`
+        `Diviser le code ${code} (${arrondi2(vracPrevu)} kg) ?\n\n${code} garde ${q.quantiteGardee} kg\n${recoit}\n\nLes cartons prevus de chaque code sont recalcules.`
       )
     ) {
       return;
@@ -54,6 +72,8 @@ export function DiviserCodeCell({ ligneId, code, vracPrevu }: { ligneId: number;
           return;
         }
         setOuvert(false);
+        // un avertissement du serveur (PD non mis a jour, Besoin deja valide) reste affiche sous le bouton
+        if (reponse.message.includes("(attention :")) setMessage(reponse.message);
         router.refresh();
       } catch {
         setMessage("Division impossible (session fermee ?). Recharge la page.");
@@ -67,7 +87,7 @@ export function DiviserCodeCell({ ligneId, code, vracPrevu }: { ligneId: number;
         <button
           type="button"
           onClick={ouvrir}
-          title={`Diviser le code ${code} en 2 (le nouveau code prend une partie du vrac)`}
+          title={`Diviser le code ${code} : une partie du vrac passe sur un autre code (nouveau, ou deja sur la ligne)`}
           className="w-fit rounded-full border border-dashed border-sky-300 px-2 py-0.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-50"
         >
           Diviser
@@ -83,7 +103,7 @@ export function DiviserCodeCell({ ligneId, code, vracPrevu }: { ligneId: number;
         Diviser {code} ({arrondi2(vracPrevu)} kg)
       </p>
       <label className="grid gap-0.5 text-[11px] font-semibold text-slate-500">
-        Vrac du nouveau code (kg)
+        Vrac a deplacer (kg)
         <input
           type="text"
           inputMode="decimal"
@@ -102,7 +122,7 @@ export function DiviserCodeCell({ ligneId, code, vracPrevu }: { ligneId: number;
         )}
       </p>
       <label className="grid gap-0.5 text-[11px] font-semibold text-slate-500">
-        Nouveau code
+        Vers le code (nouveau ou existant)
         <input
           type="text"
           value={nouveauCode}
@@ -111,6 +131,14 @@ export function DiviserCodeCell({ ligneId, code, vracPrevu }: { ligneId: number;
           className="rounded border border-slate-200 px-1.5 py-0.5 text-xs font-normal text-slate-800 focus:border-sky-400 focus:outline-none"
         />
       </label>
+      {existant && reste !== null && lectureQuantite.ok ? (
+        <p className="text-[11px] text-slate-500">
+          {existant.code} existe deja :{" "}
+          <span className="font-semibold text-slate-800">
+            {arrondi2(existant.vrac)} + {lectureQuantite.quantiteNouveau} = {arrondi2(existant.vrac + lectureQuantite.quantiteNouveau)} kg
+          </span>
+        </p>
+      ) : null}
       <div className="flex items-center gap-1">
         <button
           type="button"

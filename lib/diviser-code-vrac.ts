@@ -10,9 +10,12 @@ import { construireDivision, type EntreeDetailLot, type PlanDivision } from "@/l
 // contenance / pieces par carton, arrondi au carton superieur). Le PD (historique du Programme Dispatcher) et le dispatcher en cours suivent : le
 // nouveau code recoit une copie de la ligne de l'ancien code, avec sa quantite.
 //
-// Refuse des que le code est deja commence : du vrac, des cartons ou de l'emballage deja saisis, un Besoin valide (matieres reservees) ou une
-// Fin programme, des codes vrac choisis au Conditionnement, ou le code deja choisi comme vrac par un Conditionnement. Refuse aussi un nouveau code
-// deja utilise ailleurs (programme, PD, fabrication, Test labo, stock produit fini).
+// Si le code choisi est DEJA sur cette ligne, la quantite s'ajoute sur lui (rien n'est cree ; sa ligne de PD recoit aussi la quantite).
+//
+// Refuse des que le code divise est deja commence : du vrac, des cartons ou de l'emballage deja saisis, un Besoin valide (matieres reservees) ou
+// une Fin programme, des codes vrac choisis au Conditionnement, ou le code deja choisi comme vrac par un Conditionnement. Refuse aussi un code
+// deja utilise AILLEURS (autre ligne de programme, PD, fabrication, Test labo, stock produit fini), et un code de la ligne qui a deja une Fin
+// programme (la quantite ajoutee ne s'afficherait pas).
 
 export type DivisionCode =
   | { ok: true; message: string; code: string; nouveauCode: string; plan: PlanDivision; avertissements: string[] }
@@ -112,31 +115,24 @@ export async function diviserCodeLigne(ligneId: number, code: string, quantiteNo
     return { ok: false, message: "Ce code est deja choisi comme vrac par un Conditionnement : il ne peut plus etre divise." };
   }
 
-  // ----- Le nouveau code existe-t-il deja quelque part ? -----
-  const motif = echapperLike(nouveauCode);
-  const [lignesPrises, historique, entreesVrac, rapports, stock, vracChoisi] = await Promise.all([
-    supabaseServer.from("programme_lignes").select("numero_lot").ilike("numero_lot", `%${motif}%`).limit(200),
-    supabaseServer.from("programme_dispatcher_history").select("code").ilike("code", motif).limit(1),
-    supabaseServer.from("production_vrac_entries").select("code").ilike("code", motif).limit(1),
-    supabaseServer.from("production_rapports").select("code").ilike("code", motif).limit(1),
-    supabaseServer.from("lots_stock").select("numero_lot").ilike("numero_lot", motif).limit(1),
-    supabaseServer.from("conditionnement_codes_vrac").select("code_vrac").ilike("code_vrac", motif).limit(1),
-  ]);
-  for (const resultat of [lignesPrises, historique, entreesVrac, rapports, stock]) if (resultat.error) return { ok: false, message: resultat.error.message };
-  if (vracChoisi.error && !tableAbsente(vracChoisi.error)) return { ok: false, message: vracChoisi.error.message };
-  const minuscule = nouveauCode.toLowerCase();
-  const prisSurUneLigne = ((lignesPrises.data ?? []) as { numero_lot: string | null }[]).some((autre) =>
-    (autre.numero_lot ?? "").split(",").some((lot) => lot.trim().toLowerCase() === minuscule)
-  );
-  const dejaPris =
-    prisSurUneLigne ||
-    ((historique.data ?? []) as unknown[]).length > 0 ||
-    ((entreesVrac.data ?? []) as unknown[]).length > 0 ||
-    ((rapports.data ?? []) as unknown[]).length > 0 ||
-    ((stock.data ?? []) as unknown[]).length > 0 ||
-    (!vracChoisi.error && ((vracChoisi.data ?? []) as unknown[]).length > 0);
-  if (dejaPris) {
-    return { ok: false, message: `Le code ${nouveauCode} est deja utilise ailleurs (programme, PD, fabrication ou stock) : choisis un autre code.` };
+  // ----- Le code qui recoit : deja sur la ligne (on ajoute sur lui) ou nouveau (il ne doit etre utilise nulle part) -----
+  const avertissements: string[] = [];
+  if (plan.ajoutSur) {
+    const etapes = ((termines.data ?? []) as { code: string | null; stage: string }[])
+      .filter((termine) => (termine.code ?? "").trim() === nouveauCode)
+      .map((termine) => termine.stage);
+    if (etapes.some((etape) => etape === "vrac" || etape === "carton" || etape === "emballage")) {
+      return {
+        ok: false,
+        message: `Le code ${nouveauCode} a deja une Fin programme : ramene-le d'abord (Historique Fin programme), sinon la quantite ajoutee ne s'afficherait pas.`,
+      };
+    }
+    if (etapes.length > 0) {
+      avertissements.push(`le Besoin de ${nouveauCode} etait deja valide : les matieres des ${plan.quantiteAjoutee} kg en plus ne sont pas reservees`);
+    }
+  } else {
+    const refus = await refusSiCodePrisAilleurs(nouveauCode);
+    if (refus) return { ok: false, message: refus };
   }
 
   // ----- Ecriture : la ligne de programme (si elle a change entre-temps, rien n'est ecrit) -----
@@ -151,12 +147,13 @@ export async function diviserCodeLigne(ligneId: number, code: string, quantiteNo
   if (modificationErreur) return { ok: false, message: modificationErreur.message };
   if ((modifiees ?? []).length !== 1) return { ok: false, message: "La ligne a change entre-temps. Recharge la page." };
 
-  // ----- Le PD (historique du Programme Dispatcher) et le dispatcher en cours : le nouveau code y recoit sa propre ligne -----
-  const avertissements: string[] = [];
+  // ----- Le PD (historique du Programme Dispatcher) et le dispatcher en cours suivent : le nouveau code y recoit sa propre ligne, un code
+  // deja present recoit la quantite sur la sienne -----
   if (ligne.groupe_id !== null) {
-    const pd = await diviserLignesDispatcher("programme_dispatcher_history", "source_groupe_id", ligne, codeActuel, plan, true);
+    const suivre = plan.ajoutSur ? ajouterLignesDispatcher : diviserLignesDispatcher;
+    const pd = await suivre("programme_dispatcher_history", "source_groupe_id", ligne, codeActuel, plan, true);
     if (pd) avertissements.push(pd);
-    const enCours = await diviserLignesDispatcher("programme_dispatcher_lignes", "groupe_id", ligne, codeActuel, plan, false);
+    const enCours = await suivre("programme_dispatcher_lignes", "groupe_id", ligne, codeActuel, plan, false);
     if (enCours) avertissements.push(enCours);
   }
 
@@ -165,12 +162,112 @@ export async function diviserCodeLigne(ligneId: number, code: string, quantiteNo
     ok: true,
     message:
       `Code ${codeActuel} (${plan.vracAvant} kg) divise : ${codeActuel} garde ${plan.gardee.qt_vrac} kg${texteCartons(plan.gardee.qt_carton)} ` +
-      `et le nouveau code ${nouveauCode} prend ${plan.nouvelle.qt_vrac} kg${texteCartons(plan.nouvelle.qt_carton)}`,
+      (plan.ajoutSur
+        ? `et ${plan.quantiteAjoutee} kg s'ajoutent sur ${nouveauCode}, qui passe de ${Number(plan.ajoutSur.qt_vrac ?? 0)} a ${plan.nouvelle.qt_vrac} kg${texteCartons(plan.nouvelle.qt_carton)}`
+        : `et le nouveau code ${nouveauCode} prend ${plan.nouvelle.qt_vrac} kg${texteCartons(plan.nouvelle.qt_carton)}`),
     code: codeActuel,
     nouveauCode,
     plan,
     avertissements,
   };
+}
+
+// Un NOUVEAU code ne doit etre utilise nulle part (programme, PD, fabrication, Test labo, stock produit fini, code vrac choisi)
+async function refusSiCodePrisAilleurs(nouveauCode: string): Promise<string | null> {
+  const motif = echapperLike(nouveauCode);
+  const [lignesPrises, historique, entreesVrac, rapports, stock, vracChoisi] = await Promise.all([
+    supabaseServer.from("programme_lignes").select("numero_lot").ilike("numero_lot", `%${motif}%`).limit(200),
+    supabaseServer.from("programme_dispatcher_history").select("code").ilike("code", motif).limit(1),
+    supabaseServer.from("production_vrac_entries").select("code").ilike("code", motif).limit(1),
+    supabaseServer.from("production_rapports").select("code").ilike("code", motif).limit(1),
+    supabaseServer.from("lots_stock").select("numero_lot").ilike("numero_lot", motif).limit(1),
+    supabaseServer.from("conditionnement_codes_vrac").select("code_vrac").ilike("code_vrac", motif).limit(1),
+  ]);
+  for (const resultat of [lignesPrises, historique, entreesVrac, rapports, stock]) if (resultat.error) return resultat.error.message;
+  if (vracChoisi.error && !tableAbsente(vracChoisi.error)) return vracChoisi.error.message;
+  const minuscule = nouveauCode.toLowerCase();
+  const prisSurUneLigne = ((lignesPrises.data ?? []) as { numero_lot: string | null }[]).some((autre) =>
+    (autre.numero_lot ?? "").split(",").some((lot) => lot.trim().toLowerCase() === minuscule)
+  );
+  const dejaPris =
+    prisSurUneLigne ||
+    ((historique.data ?? []) as unknown[]).length > 0 ||
+    ((entreesVrac.data ?? []) as unknown[]).length > 0 ||
+    ((rapports.data ?? []) as unknown[]).length > 0 ||
+    ((stock.data ?? []) as unknown[]).length > 0 ||
+    (!vracChoisi.error && ((vracChoisi.data ?? []) as unknown[]).length > 0);
+  return dejaPris ? `Le code ${nouveauCode} est deja utilise ailleurs (programme, PD, fabrication ou stock) : choisis un autre code.` : null;
+}
+
+// Les lignes du PD (ou du dispatcher en cours) d'un code de cette ligne de programme : meme article, meme chaine / zone quand elles existent, et
+// la quantite que le code avait avant la division (un meme code peut etre partage entre plusieurs chaines)
+async function lignesDispatcherDuCode(
+  table: "programme_dispatcher_history" | "programme_dispatcher_lignes",
+  colonneGroupe: "source_groupe_id" | "groupe_id",
+  ligne: LigneBrute,
+  code: string,
+  vracAvant: number,
+  dernierPdSeulement: boolean
+): Promise<{ lignes: Record<string, unknown>[]; erreur: string | null }> {
+  const { data, error } = await supabaseServer.from(table).select("*").eq(colonneGroupe, ligne.groupe_id).eq("code", code);
+  if (error) return { lignes: [], erreur: error.message };
+
+  let candidates = ((data ?? []) as Record<string, unknown>[]).filter((r) => Number(r.article_id) === Number(ligne.article_id));
+  // meme chaine / meme zone quand la ligne de programme les donne (et qu'elles existent dans le PD)
+  for (const cle of ["chaine", "zone"] as const) {
+    const valeur = typeof ligne[cle] === "string" ? (ligne[cle] as string) : null;
+    if (!valeur) continue;
+    const memes = candidates.filter((r) => r[cle] === valeur);
+    if (memes.length > 0) candidates = memes;
+  }
+  let retenues = candidates.filter((r) => Math.abs(Number(r.qt_vrac ?? 0) - vracAvant) < 0.01);
+  if (dernierPdSeulement && retenues.length > 0) {
+    // le PD affiche pour un code est celui de sa ligne la plus recente : seul ce PD change, les PD plus anciens restent tels qu'enregistres
+    const derniere = retenues.reduce((a, b) => (Number(b.id) > Number(a.id) ? b : a));
+    retenues = retenues.filter((r) => r.groupe_id === derniere.groupe_id);
+  }
+  retenues.sort((a, b) => Number(a.id) - Number(b.id));
+  return { lignes: retenues, erreur: null };
+}
+
+// La quantite passe d'un code a un autre DEJA present : la ligne de PD du code d'origine est reduite, celle du code qui recoit (meme PD) augmente.
+// Retourne un avertissement si quelque chose n'a pas pu etre fait (la ligne de programme, elle, est deja ecrite).
+async function ajouterLignesDispatcher(
+  table: "programme_dispatcher_history" | "programme_dispatcher_lignes",
+  colonneGroupe: "source_groupe_id" | "groupe_id",
+  ligne: LigneBrute,
+  code: string,
+  plan: PlanDivision,
+  dernierPdSeulement: boolean
+): Promise<string | null> {
+  const libelle = table === "programme_dispatcher_history" ? "Le PD" : "Le dispatcher en cours";
+  const source = await lignesDispatcherDuCode(table, colonneGroupe, ligne, code, plan.vracAvant, dernierPdSeulement);
+  const cible = await lignesDispatcherDuCode(table, colonneGroupe, ligne, plan.nouvelle.code, Number(plan.ajoutSur?.qt_vrac ?? 0), dernierPdSeulement);
+  if (source.erreur || cible.erreur) return `${libelle} n'a pas pu etre lu : ${source.erreur ?? cible.erreur}`;
+  const paires = source.lignes.flatMap((ancienne) => {
+    const recoit = cible.lignes.find((r) => r.groupe_id === ancienne.groupe_id);
+    return recoit ? [{ ancienne, recoit }] : [];
+  });
+  // rien dans le dispatcher en cours (programme deja confirme) : rien a signaler
+  if (source.lignes.length === 0 && cible.lignes.length === 0 && table === "programme_dispatcher_lignes") return null;
+  if (paires.length === 0) return `${libelle} : les lignes de ${code} et ${plan.nouvelle.code} n'ont pas ete retrouvees, il n'a pas change.`;
+
+  for (const { ancienne, recoit } of paires) {
+    const { error: erreurCible } = await supabaseServer
+      .from(table)
+      .update({ qt_vrac: plan.nouvelle.qt_vrac, qt_carton: plan.nouvelle.qt_carton })
+      .eq("id", recoit.id as number);
+    if (erreurCible) return `${libelle} n'a pas pu etre mis a jour pour ${plan.nouvelle.code} : ${erreurCible.message}.`;
+    const { error: erreurSource } = await supabaseServer
+      .from(table)
+      .update({ qt_vrac: plan.gardee.qt_vrac, qt_carton: plan.gardee.qt_carton })
+      .eq("id", ancienne.id as number);
+    if (erreurSource) {
+      await supabaseServer.from(table).update({ qt_vrac: recoit.qt_vrac, qt_carton: recoit.qt_carton }).eq("id", recoit.id as number);
+      return `${libelle} n'a pas pu etre mis a jour pour ${code} : ${erreurSource.message}.`;
+    }
+  }
+  return null;
 }
 
 // Duplique la ligne du code d'origine pour le nouveau code, et ramene la ligne d'origine a sa part. Retourne un avertissement si quelque chose
@@ -184,26 +281,9 @@ async function diviserLignesDispatcher(
   dernierPdSeulement: boolean
 ): Promise<string | null> {
   const libelle = table === "programme_dispatcher_history" ? "Le PD" : "Le dispatcher en cours";
-  const { data, error } = await supabaseServer.from(table).select("*").eq(colonneGroupe, ligne.groupe_id).eq("code", code);
-  if (error) return `${libelle} n'a pas pu etre lu : ${error.message}`;
-
-  let candidates = ((data ?? []) as Record<string, unknown>[]).filter((r) => Number(r.article_id) === Number(ligne.article_id));
-  // meme chaine / meme zone quand la ligne de programme les donne (et qu'elles existent dans le PD)
-  for (const cle of ["chaine", "zone"] as const) {
-    const valeur = typeof ligne[cle] === "string" ? (ligne[cle] as string) : null;
-    if (!valeur) continue;
-    const memes = candidates.filter((r) => r[cle] === valeur);
-    if (memes.length > 0) candidates = memes;
-  }
-  // la ligne dont la quantite est celle du code avant division (un meme code peut etre partage entre plusieurs chaines)
-  let retenues = candidates.filter((r) => Math.abs(Number(r.qt_vrac ?? 0) - plan.vracAvant) < 0.01);
+  const { lignes: retenues, erreur } = await lignesDispatcherDuCode(table, colonneGroupe, ligne, code, plan.vracAvant, dernierPdSeulement);
+  if (erreur) return `${libelle} n'a pas pu etre lu : ${erreur}`;
   if (retenues.length === 0) return `${libelle} : la ligne de ${code} n'a pas ete retrouvee, ${plan.nouvelle.code} n'y apparait pas.`;
-  if (dernierPdSeulement) {
-    // le PD affiche pour un code est celui de sa ligne la plus recente : seul ce PD change, les PD plus anciens restent tels qu'enregistres
-    const derniere = retenues.reduce((a, b) => (Number(b.id) > Number(a.id) ? b : a));
-    retenues = retenues.filter((r) => r.groupe_id === derniere.groupe_id);
-  }
-  retenues.sort((a, b) => Number(a.id) - Number(b.id));
 
   for (const ancienne of retenues) {
     const { id, ...copie } = ancienne;

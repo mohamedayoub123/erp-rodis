@@ -30,7 +30,14 @@ export async function diviserCodeVracAction(ligneId: number, code: string, quant
       action: "modification",
       cible: String(ligneId),
       resume: `Code divise sur la ligne ${ligneId} : ${resultat.message}`,
-      avant: { ligneId, code: resultat.code, qtVrac: resultat.plan.vracAvant, qtCarton: resultat.plan.cartonsAvant },
+      avant: {
+        ligneId,
+        code: resultat.code,
+        qtVrac: resultat.plan.vracAvant,
+        qtCarton: resultat.plan.cartonsAvant,
+        // quantites du code qui recoit, quand il etait deja sur la ligne
+        ...(resultat.plan.ajoutSur ? { ajouteSur: resultat.plan.ajoutSur } : {}),
+      },
       apres: { ligneId, gardee: resultat.plan.gardee, nouvelle: resultat.plan.nouvelle, numeroLot: resultat.plan.numeroLot },
     });
 
