@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canViewPathForUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { documentDeLaSource, origineLigneStock, type OrigineStock } from "@/lib/origine-stock-pf";
 import { deleteLotStockAction } from "./actions";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
@@ -111,6 +112,46 @@ function parseLatestSortieMeta(note: string | null, sourceImport: string | null)
   return empty;
 }
 
+// Colonne "Vient de" : le document d'ou vient chaque ligne affichee (2 petites lectures : le groupe de mouvement des lignes, puis le numero
+// des documents). Le lien n'est propose que vers une page que la personne a le droit de voir. Une lecture en panne ne bloque jamais le stock.
+async function lireOrigines(rows: DisplayStockRow[], utilisateur: string | null): Promise<Map<string, OrigineStock>> {
+  const idsDocuments = [...new Set(rows.filter((row) => documentDeLaSource(row.source_import)).map((row) => row.id))];
+  const groupeParLigne = new Map<number, number>();
+  const numeroParDocument = new Map<string, { annee: number; numero: number }>();
+  if (idsDocuments.length > 0) {
+    const { data: lots } = await supabaseServer.from("lots_stock").select("id, mouvement_groupe_id").in("id", idsDocuments);
+    for (const lot of (lots ?? []) as { id: number; mouvement_groupe_id: number | null }[]) {
+      groupeParLigne.set(lot.id, lot.mouvement_groupe_id ?? lot.id);
+    }
+    // Lecture seule : un numero pas encore attribue le sera par la page Mouvements (jamais ici, la numerotation suit l'ordre de creation)
+    const { data: numeros } = await supabaseServer
+      .from("document_numeros")
+      .select("kind, ref_id, annee, numero")
+      .in("kind", ["TE", "EP", "TS"])
+      .in("ref_id", [...new Set(groupeParLigne.values())]);
+    for (const n of (numeros ?? []) as { kind: string; ref_id: number; annee: number | null; numero: number }[]) {
+      numeroParDocument.set(`${n.kind}:${n.ref_id}`, { annee: Number(n.annee ?? 0), numero: Number(n.numero) });
+    }
+  }
+
+  const origines = new Map<string, OrigineStock>();
+  const droits = new Map<string, Promise<boolean>>();
+  const peutVoir = (href: string) => {
+    const chemin = href.split(/[?#]/)[0].replace(/\/\d+$/, "/0");
+    if (!droits.has(chemin)) droits.set(chemin, canViewPathForUser(utilisateur, chemin));
+    return droits.get(chemin)!;
+  };
+  for (const row of rows) {
+    const groupe = groupeParLigne.get(row.id);
+    const document = documentDeLaSource(row.source_import);
+    const origine = origineLigneStock(row, groupe ?? row.id, document && groupe ? (numeroParDocument.get(`${document.kind}:${groupe}`) ?? null) : null);
+    // groupe pas lu : pas de lien (il menerait au mauvais document)
+    const href = origine.href && !(document && groupe === undefined) && (await peutVoir(origine.href)) ? origine.href : null;
+    origines.set(row.display_key, { libelle: origine.libelle, href });
+  }
+  return origines;
+}
+
 function parseMonthValue(value: string) {
   const month = Number(value || "0");
   if (Number.isNaN(month) || month < 1 || month > 12) {
@@ -183,6 +224,8 @@ export default async function StockPage({
       ...parseLatestSortieMeta(row.note, row.source_import),
     })
   );
+
+  const origines = await lireOrigines(pagedRows, currentStockUser);
 
   const articleSuggestions =
     ((articleSuggestionsData as { id: number; nom_article: string }[] | null) ?? []).map(
@@ -427,6 +470,7 @@ export default async function StockPage({
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Lot</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Date fab.</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Entree</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Vient de</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Sortie</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Stock code</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Stock article</th>
@@ -454,6 +498,20 @@ export default async function StockPage({
                       <td className="px-4 py-3 text-xs text-slate-600">{formatDate(row.date_fabrication)}</td>
                       <td className="px-4 py-3 font-semibold text-emerald-700">
                         {row.mouvement_type === "entree" ? row.qte_entree : 0}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-600">
+                        {origines.get(row.display_key)?.href ? (
+                          <Link
+                            href={origines.get(row.display_key)!.href!}
+                            prefetch={false}
+                            title="Ouvrir ce document"
+                            className="font-semibold text-sky-700 underline"
+                          >
+                            {origines.get(row.display_key)!.libelle}
+                          </Link>
+                        ) : (
+                          origines.get(row.display_key)?.libelle || "-"
+                        )}
                       </td>
                       <td className="px-4 py-3 font-semibold text-sky-700">
                         {row.mouvement_type === "sortie" ? row.qte_sortie : 0}

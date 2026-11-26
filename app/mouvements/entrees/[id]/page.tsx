@@ -13,10 +13,14 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 
 export default async function EntreeDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  // ligne : la ligne cliquee dans le Stock (colonne "Vient de"), surlignee ici
+  searchParams: Promise<{ ligne?: string }>;
 }) {
   const { id } = await params;
+  const ligneCliquee = Number((await searchParams).ligne || "0");
   const groupeId = Number(id);
   const currentStockUser = await getCurrentStockUser();
   const canEditStock = await canDeletePageUser(currentStockUser, "mouvementsEntreeDetail");
@@ -67,7 +71,7 @@ export default async function EntreeDetailPage({
               </thead>
               <tbody>
                 {group.lignes.map((ligne) => (
-                  <tr key={ligne.id} className="border-t border-slate-100 align-top">
+                  <tr key={ligne.id} id={`ligne-${ligne.id}`} className={`border-t border-slate-100 align-top ${ligne.id === ligneCliquee ? "bg-amber-100" : ""}`}>
                     <td className="px-4 py-3 font-medium text-slate-900">{ligne.article_label}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.numero_lot || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">{formatMouvementDate(ligne.date_fabrication)}</td>
