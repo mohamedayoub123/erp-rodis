@@ -12,6 +12,7 @@ import { cleChoix, codesVracBloquesParQualite, lireChoixLigneCode, messageSiVrac
 import { trouverMessageStockNegatif } from "@/lib/controle-stock-negatif";
 import { fetchVracDepotBParArticle } from "@/lib/vrac-depot-b";
 import { planifierSynchroVrac } from "@/lib/vrac-stock-depot-b";
+import { planifierRetourConditionnement } from "@/lib/retour-conditionnement";
 import { SOURCE_VRAC_A_RECUPERER, noteVracEnRecuperationFabrication } from "@/lib/vrac-a-recuperer";
 import {
   encoderRecuperations,
@@ -2075,6 +2076,10 @@ export async function saveEmballageRapportAction(formData: FormData) {
 // impossible a choisir comme code vrac). Un code n'a que ce qu'il a lui meme reellement produit (journal carton/emballage scope par
 // code) - supprimer un code n'affecte jamais les 2 autres. La suppression est ecrite dans le journal (qui, quand, quelles quantites) ;
 // les cartons se restaurent depuis Admin > Historique (meme module que la suppression d'une entree carton).
+// Poubelle d'un code dans la colonne Emballage du Dashboard (la seule de cette colonne) : le code revient au Conditionnement. Seuls les cartons
+// PAS ENCORE emballes sont retires de leur saisie de Conditionnement ; les cartons deja emballes (peut-etre deja entres en stock produit fini),
+// la Fabrication et le Test labo ne sont jamais touches. La Fin programme du Conditionnement (et de l'Emballage) du code est annulee, sinon il
+// resterait cache. Tout ce qui est efface ou modifie est garde dans le journal.
 export async function deleteCodeProgressAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
@@ -2090,43 +2095,105 @@ export async function deleteCodeProgressAction(formData: FormData) {
     throw new Error("Ligne ou code invalide.");
   }
 
-  // Ce qui va etre efface est lu d'abord : il est garde dans le journal.
-  const [cartonsAvantResult, emballagesAvantResult] = await Promise.all([
-    supabaseServer.from("production_carton_entries").select("*").eq("programme_ligne_id", ligneId).eq("code", code),
-    supabaseServer.from("production_emballage_entries").select("*").eq("programme_ligne_id", ligneId).eq("code", code),
+  // Tout est lu AVANT de toucher a quoi que ce soit.
+  const [ligneResult, cartonsResult, emballagesResult, finsResult] = await Promise.all([
+    supabaseServer.from("programme_lignes").select("id, numero_lot, qt_carton, vrac_a_fabriquer, carton_termine, emballage_termine").eq("id", ligneId).maybeSingle(),
+    supabaseServer.from("production_carton_entries").select("*").eq("programme_ligne_id", ligneId),
+    supabaseServer.from("production_emballage_entries").select("*").eq("programme_ligne_id", ligneId),
+    supabaseServer.from("production_code_termine").select("*").eq("programme_ligne_id", ligneId).eq("code", code).in("stage", ["carton", "emballage"]),
   ]);
-  const lectureEchouee = [cartonsAvantResult, emballagesAvantResult].find((result) => result.error);
+  const lectureEchouee = [ligneResult, cartonsResult, emballagesResult, finsResult].find((result) => result.error);
   if (lectureEchouee?.error) {
     throw new Error(lectureEchouee.error.message);
   }
-  const cartonsAvant = (cartonsAvantResult.data ?? []) as Record<string, unknown>[];
-  const emballagesAvant = (emballagesAvantResult.data ?? []) as Record<string, unknown>[];
+  const ligne = ligneResult.data as {
+    numero_lot: string | null;
+    qt_carton: number | null;
+    vrac_a_fabriquer: number | null;
+    carton_termine: boolean | null;
+    emballage_termine: boolean | null;
+  } | null;
+  if (!ligne) {
+    redirect(`/production/suivi/dashboard?avertissement=${encodeURIComponent("Cette ligne n'existe plus : recharge la page.")}`);
+  }
+  const codesLigne = String(ligne.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
 
-  const [cartonResult, emballageResult] = await Promise.all([
-    supabaseServer.from("production_carton_entries").delete().eq("programme_ligne_id", ligneId).eq("code", code),
-    supabaseServer.from("production_emballage_entries").delete().eq("programme_ligne_id", ligneId).eq("code", code),
-  ]);
+  // Les saisies de CE code, comptees comme le Dashboard : une vieille ligne dont aucune saisie ne porte de code n'a qu'un code possible
+  type Saisie = Record<string, unknown> & { id: number; code: string | null; quantite: number | string | null };
+  const duCode = (saisies: Saisie[]) =>
+    codesLigne.length <= 1 && !saisies.some((s) => s.code) ? saisies : saisies.filter((s) => s.code === code);
+  const cartons = duCode((cartonsResult.data ?? []) as Saisie[]);
+  const emballe = duCode((emballagesResult.data ?? []) as Saisie[]).reduce((total, s) => total + Number(s.quantite ?? 0), 0);
 
-  const failed = [cartonResult, emballageResult].find((result) => result.error);
-  if (failed?.error) {
-    throw new Error(failed.error.message);
+  const plan = planifierRetourConditionnement(cartons, emballe);
+  if (plan.retournes <= 0) {
+    redirect(`/production/suivi/dashboard?avertissement=${encodeURIComponent(`Rien a renvoyer au Conditionnement pour ${code} : recharge la page.`)}`);
   }
 
-  if (cartonsAvant.length > 0 || emballagesAvant.length > 0) {
-    const somme = (lignes: Record<string, unknown>[]) => lignes.reduce((total, ligne) => total + Number(ligne.quantite ?? 0), 0);
-    await logAudit({
-      utilisateur: currentUser,
-      // Meme module que la suppression d'une entree carton : le bouton Restaurer de Admin > Historique remet les cartons.
-      module: "ProductionCartonEntries",
-      action: "suppression",
-      cible: code,
-      resume: `Dashboard, colonne Emballage : ${code} (ligne ${ligneId}) revient au Conditionnement - ${cartonsAvant.length} saisie(s) carton (${somme(cartonsAvant)}) et ${emballagesAvant.length} saisie(s) emballage (${somme(emballagesAvant)}) effacees ; Test labo et Fabrication non touches`,
-      avant: { entries: cartonsAvant, emballage: emballagesAvant },
-    });
+  if (plan.aSupprimer.length > 0) {
+    const { error } = await supabaseServer.from("production_carton_entries").delete().in("id", plan.aSupprimer).eq("programme_ligne_id", ligneId);
+    if (error) throw new Error(error.message);
   }
+  if (plan.aReduire) {
+    const { error } = await supabaseServer
+      .from("production_carton_entries")
+      .update({ quantite: plan.aReduire.quantite, qt_fabriquer: plan.aReduire.quantite })
+      .eq("id", plan.aReduire.id)
+      .eq("programme_ligne_id", ligneId);
+    if (error) throw new Error(error.message);
+  }
+
+  // Fiche creee avec "+" (aucune quantite prevue, aucune Fabrication) : le Dashboard ne la montre qu'en Emballage. Pour qu'elle revienne au
+  // Conditionnement, ses cartons conditionnes deviennent sa quantite prevue (vrac prevu a 0 : elle ne va pas en Fabrication).
+  let ficheAvant: { qt_carton: number | null; vrac_a_fabriquer: number | null } | null = null;
+  if (codesLigne.length <= 1 && ligne.qt_carton === null && ligne.vrac_a_fabriquer === null) {
+    const { data: vracs, error: erreurVrac } = await supabaseServer.from("production_vrac_entries").select("code").eq("programme_ligne_id", ligneId);
+    if (erreurVrac) throw new Error(erreurVrac.message);
+    if (!(vracs ?? []).some((v) => (v as { code: string | null }).code === code)) {
+      const prevu = Math.round(cartons.reduce((total, s) => total + Number(s.quantite ?? 0), 0));
+      const { error } = await supabaseServer.from("programme_lignes").update({ qt_carton: prevu, vrac_a_fabriquer: 0 }).eq("id", ligneId);
+      if (error) throw new Error(error.message);
+      ficheAvant = { qt_carton: ligne.qt_carton, vrac_a_fabriquer: ligne.vrac_a_fabriquer };
+    }
+  }
+
+  const fins = (finsResult.data ?? []) as Record<string, unknown>[];
+  if (fins.length > 0) {
+    const { error } = await supabaseServer
+      .from("production_code_termine")
+      .delete()
+      .eq("programme_ligne_id", ligneId)
+      .eq("code", code)
+      .in("stage", ["carton", "emballage"]);
+    if (error) throw new Error(error.message);
+  }
+  // Ancien marquage "termine" porte par la ligne entiere (lignes a un seul code)
+  if (codesLigne.length <= 1 && (ligne.carton_termine || ligne.emballage_termine)) {
+    const { error } = await supabaseServer.from("programme_lignes").update({ carton_termine: false, emballage_termine: false }).eq("id", ligneId);
+    if (error) throw new Error(error.message);
+  }
+
+  const touchees = cartons.filter((s) => plan.aSupprimer.includes(s.id) || plan.aReduire?.id === s.id);
+  const arrondi = (valeur: number) => Math.round(valeur * 100) / 100;
+  const effaceEnEntier = !plan.aReduire && emballe <= 0;
+  await logAudit({
+    utilisateur: currentUser,
+    // Saisies effacees en entier (rien d'emballe) : "suppression", le bouton Restaurer de Admin > Historique remet les cartons. Retour partiel :
+    // "modification" (restaurer ajouterait les cartons une 2e fois a cote de la saisie reduite).
+    module: "ProductionCartonEntries",
+    action: effaceEnEntier ? "suppression" : "modification",
+    cible: code,
+    resume:
+      `Dashboard, colonne Emballage : ${code} (ligne ${ligneId}) revient au Conditionnement - ${arrondi(plan.retournes)} cartons pas encore emballes retires ` +
+      `(${plan.aSupprimer.length} saisie(s) effacee(s)${plan.aReduire ? `, 1 saisie ramenee a ${plan.aReduire.quantite}` : ""}) ; ` +
+      `${arrondi(emballe)} cartons deja emballes gardes${fins.length > 0 ? " ; Fin programme annulee" : ""} ; Test labo et Fabrication non touches`,
+    avant: { entries: touchees, finProgramme: fins, ...(ficheAvant ? { ligne: ficheAvant } : {}) },
+    apres: plan.aReduire ? { saisieReduite: plan.aReduire } : undefined,
+  });
 
   revalidateRapportPages();
 }
+
 
 // Fiche Conditionnement/Emballage "nouveau" (bouton "+" sur le Dashboard) :
 // cree une ligne minimale (pas de quantite prevue, cette fiche n'est pas

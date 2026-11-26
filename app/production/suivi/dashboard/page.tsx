@@ -1068,13 +1068,13 @@ export default async function PlanningDashboardPage({
                     <th className="px-4 py-3 font-semibold">Qt</th>
                     <th className="px-4 py-3 font-semibold">Rapport</th>
                     <th className="px-4 py-3 font-semibold">Action</th>
-                    {canDeleteLigne ? <th className="px-4 py-3 font-semibold">Suppr.</th> : null}
+                    {isAdmin ? <th className="px-4 py-3 font-semibold">Suppr.</th> : null}
                   </tr>
                 </thead>
                 <tbody>
                   {emballageRows.length === 0 ? (
                     <tr>
-                      <td colSpan={canDeleteLigne ? 7 : 6} className="px-4 py-6 text-center text-sm text-slate-500">
+                      <td colSpan={isAdmin ? 7 : 6} className="px-4 py-6 text-center text-sm text-slate-500">
                         {hasFilters
                           ? "Aucun resultat pour ce filtre."
                           : "Rien a emballer pour le moment."}
@@ -1102,31 +1102,26 @@ export default async function PlanningDashboardPage({
                           ) : null}
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            {dash.finProgramme ? (
-                            <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markEmballageTermineAction} />
-                            ) : null}
-                            {/* Efface les quantites d'un code : reserve aux admins (ayoub, mayoub), comme la suppression d'un programme entier. */}
-                            {isAdmin ? (
+                          {dash.finProgramme ? (
+                          <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markEmballageTermineAction} />
+                          ) : null}
+                        </td>
+                        {/* La SEULE poubelle de la colonne Emballage : le code revient au Conditionnement (les cartons deja emballes, la Fabrication
+                            et le Test labo restent). Reservee aux admins (ayoub, mayoub). */}
+                        {isAdmin ? (
+                          <td className="px-4 py-3">
                             <form action={deleteCodeProgressAction}>
                               <input type="hidden" name="ligne_id" value={row.ligne.id} />
                               <input type="hidden" name="code" value={row.code} />
                               <DeleteIconButton
-                                label={`Supprimer ${row.code} (revient au Conditionnement)`}
-                                confirmMessage={`Effacer les quantites de cartons et d'emballage de ${row.code} ? Le code revient au Conditionnement. Le Test labo et la Fabrication ne sont pas touches.`}
+                                label={`Renvoyer ${row.code} au Conditionnement`}
+                                confirmMessage={
+                                  Math.round(row.emballageProduit) > 0
+                                    ? `Renvoyer au Conditionnement les ${Math.round(row.emballageRestant)} cartons de ${row.code} pas encore emballes ? Les ${Math.round(row.emballageProduit)} cartons deja emballes restent. La Fabrication et le Test labo ne sont pas touches.`
+                                    : `Renvoyer au Conditionnement les ${Math.round(row.emballageRestant)} cartons de ${row.code} ? Leur saisie de Conditionnement est effacee. La Fabrication et le Test labo ne sont pas touches.`
+                                }
                               />
                             </form>
-                            ) : null}
-                          </div>
-                        </td>
-                        {canDeleteLigne ? (
-                          <td className="px-4 py-3">
-                            <DeleteProgrammeLigneButton
-                              ligneId={row.ligne.id}
-                              produit={row.ligne.produit || row.code}
-                              code={row.code}
-                              deleteAction={deleteProgrammeLigneDashboardAction}
-                            />
                           </td>
                         ) : null}
                       </tr>
@@ -1140,7 +1135,7 @@ export default async function PlanningDashboardPage({
                         Total ({emballageRows.length} codes)
                       </td>
                       <td className="px-4 py-3">{Math.round(totalEmballageRestant)} cartons</td>
-                      <td colSpan={canDeleteLigne ? 3 : 2}></td>
+                      <td colSpan={isAdmin ? 3 : 2}></td>
                     </tr>
                   </tfoot>
                 ) : null}
