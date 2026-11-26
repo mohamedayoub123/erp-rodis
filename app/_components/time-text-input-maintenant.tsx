@@ -5,6 +5,7 @@ import { calculerDecalageHorloge, formaterHeureTogo } from "@/lib/heure-togo";
 import { useRestaurationBrouillon } from "./brouillon-formulaire";
 import { heureServeurAction } from "./heure-serveur-actions";
 import {
+  appliquerValeurTapee,
   handleTimeKeyDown,
   parseTimeValue,
   pushTimeDigit,
@@ -79,7 +80,10 @@ export function TimeTextInputMaintenant({
         required={required}
         value={renderTimeState(state)}
         onKeyDown={(event) => handleTimeKeyDown(event, setState)}
-        onChange={() => {}}
+        onChange={(event) => {
+          const valeur = event.target.value;
+          setState((prev) => appliquerValeurTapee(prev, valeur));
+        }}
         onPaste={(event) => {
           event.preventDefault();
           const digits = event.clipboardData.getData("text").replace(/\D/g, "").slice(0, 4);

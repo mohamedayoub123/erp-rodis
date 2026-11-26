@@ -86,6 +86,9 @@ const NAV_KEYS = new Set([
   "Escape",
 ]);
 
+// Ce que les claviers de tablette / telephone envoient a la place de la touche tapee : la saisie arrive alors seulement par la valeur du champ
+const TOUCHES_INCONNUES = new Set(["Unidentified", "Process", "Dead"]);
+
 // Meme gestion clavier partagee par TimeTextInput et tout champ heure
 // controle localement (ex: TempsField dans fabrication-form.tsx, qui
 // combine l'heure avec un jour/mois) - un seul setState (React.Dispatch)
@@ -100,9 +103,21 @@ export function handleTimeKeyDown(
   } else if (event.key === "Backspace" || event.key === "Delete") {
     event.preventDefault();
     setState((prev) => popTimeDigit(prev));
-  } else if (!NAV_KEYS.has(event.key) && !event.ctrlKey && !event.metaKey) {
+  } else if (!NAV_KEYS.has(event.key) && !TOUCHES_INCONNUES.has(event.key) && !event.ctrlKey && !event.metaKey) {
     event.preventDefault();
   }
+}
+
+// Saisie TACTILE (tablette, telephone, stylet, dictee) : le clavier ne dit pas toujours quelle touche est tapee, seule la valeur du champ
+// change. On repart des chiffres de la nouvelle valeur avec le meme masque ; effacer le dernier caractere = Retour arriere.
+// Un vrai clavier ne passe pas ici : handleTimeKeyDown bloque la touche avant que la valeur ne change.
+export function appliquerValeurTapee(prev: TimeMaskState, valeur: string): TimeMaskState {
+  const avant = renderTimeState(prev);
+  if (valeur === avant) return prev;
+  const chiffres = valeur.replace(/\D/g, "");
+  const effaceALaFin = valeur.length < avant.length && avant.startsWith(valeur);
+  if (effaceALaFin && avant.replace(/\D/g, "").length - chiffres.length <= 1) return popTimeDigit(prev);
+  return chiffres.split("").reduce<TimeMaskState>((etat, chiffre) => pushTimeDigit(etat, chiffre), { h: "", m: "", hAutoPadded: false });
 }
 
 export function TimeTextInput({
@@ -129,7 +144,10 @@ export function TimeTextInput({
       required={required}
       value={renderTimeState(state)}
       onKeyDown={(event) => handleTimeKeyDown(event, setState)}
-      onChange={() => {}}
+      onChange={(event) => {
+        const valeur = event.target.value;
+        setState((prev) => appliquerValeurTapee(prev, valeur));
+      }}
       onPaste={(event) => {
         event.preventDefault();
         const digits = event.clipboardData.getData("text").replace(/\D/g, "").slice(0, 4);

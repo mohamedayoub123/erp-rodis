@@ -11,6 +11,7 @@ import {
 } from "@/lib/suivi-tirage-time";
 import {
   type TimeMaskState,
+  appliquerValeurTapee,
   handleTimeKeyDown,
   parseTimeValue,
   renderTimeState,
@@ -129,7 +130,10 @@ export function TempsField({
           title="Format 24h, ex: 14:30"
           value={time}
           onKeyDown={(event) => handleTimeKeyDown(event, setTimeState)}
-          onChange={() => {}}
+          onChange={(event) => {
+            const valeur = event.target.value;
+            setTimeState((prev) => appliquerValeurTapee(prev, valeur));
+          }}
           required
           className={inputClass}
         />
