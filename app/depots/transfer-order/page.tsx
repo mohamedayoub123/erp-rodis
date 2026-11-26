@@ -12,6 +12,7 @@ import { lireArticlesMpPourFormulaires, type ArticleMpListe } from "@/lib/articl
 import { lireArticlesPfListe, type ArticlePfListe } from "@/lib/articles-pf-liste";
 import { createTransferOrderAction, deleteTransferOrderAction } from "./actions";
 import { terminerLesTransferOrdersSansReste } from "@/lib/transfer-order-statut";
+import { fetchPdDesProgrammes } from "@/lib/transfer-order-pd";
 import { TransferOrderLinesForm } from "./transfer-order-lines-form";
 
 type DepotRow = { id: number; nom: string };
@@ -26,6 +27,8 @@ type TransferOrderRow = {
   remarque: string | null;
   type_mp: string | null;
   cree_par: string | null;
+  // programme (Programme par ligne) d'ou vient le TO cree par "Verifier stock"
+  source_groupe_id_programme_ligne: number | null;
 };
 type InvoiceOrderRow = { id: number; transfer_order_id: number; numero: number | null; date_jour: string };
 
@@ -113,7 +116,7 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
     lireTable<DepotRow>("depots", "id, nom"),
     lireTable<TransferOrderRow>(
       "transfer_orders",
-      "id, depot_source_id, depot_destination_id, statut, date_jour, created_at, numero, remarque, type_mp, cree_par"
+      "id, depot_source_id, depot_destination_id, statut, date_jour, created_at, numero, remarque, type_mp, cree_par, source_groupe_id_programme_ligne"
     ).then(
       (rows) => ({ rows, error: null as { message: string } | null }),
       (e: unknown) => ({
@@ -166,6 +169,10 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
 
   const lignesAffichees = toutAfficher ? sortedTransferOrders : sortedTransferOrders.slice(0, LIMITE_LIGNES);
   const nbMasquees = sortedTransferOrders.length - lignesAffichees.length;
+  // PD des TO affiches qui viennent d'un programme ; une lecture en panne ne bloque jamais la liste
+  const pdParProgramme = await fetchPdDesProgrammes(
+    lignesAffichees.map((row) => row.source_groupe_id_programme_ligne).filter((id): id is number => id !== null)
+  ).catch(() => new Map<number, { code: string; groupeId: number }[]>());
   const hrefVoirTout = (() => {
     const query = new URLSearchParams();
     if (params.depotSource) query.set("depotSource", params.depotSource);
@@ -363,6 +370,7 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
                     <th className="px-6 py-4 font-semibold">Code</th>
+                    <th className="px-6 py-4 font-semibold">PD</th>
                     <th className="px-6 py-4 font-semibold">Date</th>
                     <th className="px-6 py-4 font-semibold">De</th>
                     <th className="px-6 py-4 font-semibold">Vers</th>
@@ -380,6 +388,22 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
                         <Link href={`/depots/transfer-order/${row.id}`} className="text-sky-700 underline">
                           {codeById.get(row.id)}
                         </Link>
+                      </td>
+                      <td className="whitespace-nowrap px-6 py-4 font-semibold text-slate-900">
+                        {row.source_groupe_id_programme_ligne === null ? (
+                          <span className="font-normal text-slate-400">-</span>
+                        ) : (pdParProgramme.get(row.source_groupe_id_programme_ligne) ?? []).length === 0 ? (
+                          <span className="text-xs font-normal text-slate-500">pas encore de PD</span>
+                        ) : (
+                          (pdParProgramme.get(row.source_groupe_id_programme_ligne) ?? []).map((pd, index) => (
+                            <span key={pd.groupeId}>
+                              {index > 0 ? ", " : ""}
+                              <Link href={`/historique-programme-dispatcher/${pd.groupeId}`} prefetch={false} className="text-sky-700 underline">
+                                {pd.code}
+                              </Link>
+                            </span>
+                          ))
+                        )}
                       </td>
                       <td className="px-6 py-4 text-slate-600">{formatDate(row.date_jour)}</td>
                       <td className="px-6 py-4 text-slate-600">{depotNomById.get(row.depot_source_id) ?? "-"}</td>

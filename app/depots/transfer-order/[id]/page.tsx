@@ -243,6 +243,23 @@ export default async function TransferOrderDetailPage({
                 Transfer Order
               </p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">{code}</h1>
+              {/* TO cree par "Verifier stock" d'un programme : son PD (visible aussi a l'impression de la page) */}
+              {flux?.origine.type === "programme_ligne" ? (
+                <p className="mt-2 text-lg font-bold text-slate-900">
+                  {flux.origine.pds.length === 0 ? (
+                    <span className="text-sm font-semibold text-slate-500">Programme {flux.origine.label} : pas encore de PD</span>
+                  ) : (
+                    flux.origine.pds.map((pd, index) => (
+                      <span key={pd.href}>
+                        {index > 0 ? ", " : ""}
+                        <Link href={pd.href} prefetch={false} className="text-sky-700 underline">
+                          {pd.label}
+                        </Link>
+                      </span>
+                    ))
+                  )}
+                </p>
+              ) : null}
               <p className="mt-2 text-sm text-slate-600">
                 {formatDate(transferOrder.date_jour)} - {depotNomById.get(transferOrder.depot_source_id) ?? "-"}
                 {" -> "}

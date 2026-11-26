@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { fetchLotsInDepot, totalAvailable } from "@/app/depots/transfer-order/stock-lots";
+import { quantiteDemandee, repartirEnTransferOrders, type SousGroupe } from "@/lib/transfer-order-programme";
 
 // Les 9 familles de produit fini demandees, chacune sa propre Transfer
 // Order - plusieurs type_article bruts (avec fautes de frappe/espaces dans
@@ -41,7 +42,7 @@ function mapTypeArticleToGroupe(typeArticle: string | null): string {
 // Etiquette... ("Autre") - 2 groupes au total, pas 3. Le mot "MP" doit etre
 // un token isole (espace/tiret autour) pour ne pas matcher par accident des
 // mots comme "PUMP" ou "CAPSULES-IMP" qui contiennent "MP" en sous-chaine.
-function categorieSousGroupe(categorie: string | null): string {
+function categorieSousGroupe(categorie: string | null): SousGroupe {
   const normalized = (categorie || "").trim().toUpperCase();
   const tokens = normalized.split(/[^A-Z0-9]+/).filter(Boolean);
   const isChimique =
@@ -51,11 +52,6 @@ function categorieSousGroupe(categorie: string | null): string {
     normalized === "BASE" ||
     tokens.includes("MP");
   return isChimique ? "Colorant-Base" : "Autre";
-}
-
-function round(value: number, decimals = 3) {
-  const factor = 10 ** decimals;
-  return Math.round(value * factor) / factor;
 }
 
 // Cree automatiquement un Transfer Order par famille de produit fini
@@ -218,92 +214,67 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
   // supprime n'est jamais reattribue.
   const maxNumeroExistant = (lastTransferOrder as { numero: number | null } | null)?.numero ?? 0;
 
-  for (const [groupe, besoinMap] of besoinParGroupeMp.entries()) {
-    // Colorant+Base (ensemble) toujours a part du reste, meme groupe de
-    // type - et par depot source (rare que ca varie, mais un Transfer Order
-    // n'a qu'un seul depot source).
-    const buckets = new Map<string, { mpArticleId: number; quantite: number; depotSourceId: number }[]>();
+  // Une seule TO de conditionnement pour tout le programme ; colorant / base / MP par famille (lib/transfer-order-programme.ts)
+  const repartition = repartirEnTransferOrders({
+    besoinParGroupeMp,
+    articleMp: (mpArticleId) => articleMpById.get(mpArticleId),
+    sousGroupeDe: categorieSousGroupe,
+    depotDestinationId,
+  });
+  for (const nom of repartition.articlesSansDepot) articlesSansDepot.add(nom);
 
-    for (const [mpArticleId, besoin] of besoinMap.entries()) {
-      if (besoin <= 0) continue;
-      const mpArticle = articleMpById.get(mpArticleId);
-      const depotSourceId = mpArticle?.depot_id ?? null;
-      if (!depotSourceId) {
-        // Pas de depot par defaut connu pour cet article - impossible de
-        // savoir d'ou transferer, jamais devine.
-        articlesSansDepot.add(mpArticle?.nom_article ?? `#${mpArticleId}`);
+  for (const prevu of repartition.transferOrders) {
+    const lignesToCreate: { article_id: number; quantite: number }[] = [];
+    for (const entry of prevu.lignes) {
+      const lots = await fetchLotsInDepot("MP", entry.mpArticleId, prevu.depotSourceId);
+      const disponible = totalAvailable(lots);
+      const quantite = quantiteDemandee(entry.besoin, disponible, prevu.typeMp);
+
+      if (quantite <= 0) {
+        skipped.push({ articleId: entry.mpArticleId, besoin: entry.besoin, disponible });
         continue;
       }
 
-      const sousGroupe = categorieSousGroupe(mpArticle?.categorie ?? null);
-      const bucketKey = `${sousGroupe}::${depotSourceId}`;
-      const list = buckets.get(bucketKey) ?? [];
-      list.push({ mpArticleId, quantite: besoin, depotSourceId });
-      buckets.set(bucketKey, list);
+      lignesToCreate.push({ article_id: entry.mpArticleId, quantite });
     }
 
-    for (const [bucketKey, entries] of buckets.entries()) {
-      const [sousGroupe, depotSourceIdRaw] = bucketKey.split("::");
-      const depotSourceId = Number(depotSourceIdRaw);
-      if (depotSourceId === depotDestinationId) continue; // deja dans Depot B, rien a transferer
+    if (lignesToCreate.length === 0) continue;
 
-      const lignesToCreate: { article_id: number; quantite: number }[] = [];
-      for (const entry of entries) {
-        const lots = await fetchLotsInDepot("MP", entry.mpArticleId, depotSourceId);
-        const disponible = totalAvailable(lots);
-        const quantiteBrute = Math.min(entry.quantite, disponible);
-        // Article de conditionnement (sous-groupe "Autre" = Sleeve, Carton,
-        // Flacon, Capsule...) = piece entiere, jamais une fraction - un
-        // besoin de 313.2 cartons demande reellement 314 cartons. Seul le
-        // sous-groupe Colorant-Base (liquide/poids) garde des decimales.
-        const quantite = sousGroupe === "Colorant-Base" ? round(quantiteBrute) : Math.ceil(quantiteBrute);
+    const { data: transferOrder, error: transferOrderError } = await supabaseServer
+      .from("transfer_orders")
+      .insert({
+        depot_source_id: prevu.depotSourceId,
+        depot_destination_id: depotDestinationId,
+        date_jour: dateJour,
+        cree_par: currentUser,
+        famille_produit: prevu.famille,
+        type_mp: prevu.typeMp,
+        numero: await prochainNumero("TO", Number(year), maxNumeroExistant),
+        source_numero_programme: numeroProgramme,
+      })
+      .select("id")
+      .single();
 
-        if (quantite <= 0) {
-          skipped.push({ articleId: entry.mpArticleId, besoin: entry.quantite, disponible });
-          continue;
-        }
-
-        lignesToCreate.push({ article_id: entry.mpArticleId, quantite });
-      }
-
-      if (lignesToCreate.length === 0) continue;
-
-      const { data: transferOrder, error: transferOrderError } = await supabaseServer
-        .from("transfer_orders")
-        .insert({
-          depot_source_id: depotSourceId,
-          depot_destination_id: depotDestinationId,
-          date_jour: dateJour,
-          cree_par: currentUser,
-          famille_produit: groupe,
-          type_mp: sousGroupe === "Colorant-Base" ? "MP" : "Conditionnement",
-          numero: await prochainNumero("TO", Number(year), maxNumeroExistant),
-          source_numero_programme: numeroProgramme,
-        })
-        .select("id")
-        .single();
-
-      if (transferOrderError) {
-        throw new Error(transferOrderError.message);
-      }
-
-      const transferOrderId = (transferOrder as { id: number }).id;
-
-      const { error: lignesInsertError } = await supabaseServer.from("transfer_order_lignes").insert(
-        lignesToCreate.map((l) => ({
-          transfer_order_id: transferOrderId,
-          article_type: "MP",
-          article_id: l.article_id,
-          quantite_demandee: l.quantite,
-        }))
-      );
-
-      if (lignesInsertError) {
-        throw new Error(lignesInsertError.message);
-      }
-
-      createdCodes.push(`${groupe} (${sousGroupe}) -> TO #${transferOrderId}`);
+    if (transferOrderError) {
+      throw new Error(transferOrderError.message);
     }
+
+    const transferOrderId = (transferOrder as { id: number }).id;
+
+    const { error: lignesInsertError } = await supabaseServer.from("transfer_order_lignes").insert(
+      lignesToCreate.map((l) => ({
+        transfer_order_id: transferOrderId,
+        article_type: "MP",
+        article_id: l.article_id,
+        quantite_demandee: l.quantite,
+      }))
+    );
+
+    if (lignesInsertError) {
+      throw new Error(lignesInsertError.message);
+    }
+
+    createdCodes.push(`${prevu.famille} (${prevu.typeMp}) -> TO #${transferOrderId}`);
   }
 
   if (createdCodes.length === 0 && articlesSansDepot.size === 0) {
