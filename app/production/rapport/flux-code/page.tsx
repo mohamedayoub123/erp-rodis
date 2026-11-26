@@ -4,6 +4,8 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { BoutonExportPdf } from "@/app/_components/bouton-export-pdf";
 import { CodeFluxCard, LEGENDE_FLUX } from "@/app/_components/code-flux-card";
 import { buildCodeFluxContext, fetchCodeFluxParProduit } from "@/lib/production-code-flux";
+import { lireCodesPourRecherche } from "@/lib/codes-flux";
+import { ChampCode } from "./champ-code";
 import { canViewPageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { redirect } from "next/navigation";
 
@@ -26,15 +28,20 @@ export default async function FluxParCodePage({ searchParams }: { searchParams: 
   const { code: codeParam } = await searchParams;
   const code = (codeParam || "").trim();
 
-  // Un code tire sur plusieurs produits differents donne un bloc par produit (jamais leurs cartons additionnes)
-  const fluxList = code ? await fetchCodeFluxParProduit(code, await buildCodeFluxContext()) : [];
+  // Un code tire sur plusieurs produits differents donne un bloc par produit (jamais leurs cartons additionnes).
+  // La liste des codes proposee pendant la saisie est lue en meme temps ; en panne, le champ marche sans liste.
+  const [fluxList, listeCodes] = await Promise.all([
+    code ? buildCodeFluxContext().then((contexte) => fetchCodeFluxParProduit(code, contexte)) : Promise.resolve([]),
+    lireCodesPourRecherche().catch(() => ({ produits: [] as string[], codes: [] as [string, number][] })),
+  ]);
   const flux = fluxList[0] ?? null;
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#e0f2fe_0%,#f0f9ff_40%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
-        <section className="no-print overflow-hidden rounded-[1.75rem] border border-sky-100 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.10)]">
-          <div className="bg-[linear-gradient(135deg,#0c4a6e_0%,#0369a1_55%,#0891b2_100%)] px-6 py-7 text-white [-webkit-print-color-adjust:exact] [print-color-adjust:exact] sm:px-8">
+        {/* pas de overflow-hidden ici : la liste des codes doit pouvoir depasser de la carte */}
+        <section className="no-print rounded-[1.75rem] border border-sky-100 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.10)]">
+          <div className="rounded-t-[1.75rem] bg-[linear-gradient(135deg,#0c4a6e_0%,#0369a1_55%,#0891b2_100%)] px-6 py-7 text-white [-webkit-print-color-adjust:exact] [print-color-adjust:exact] sm:px-8">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-sm font-bold uppercase tracking-[0.2em] text-sky-200">
@@ -57,14 +64,8 @@ export default async function FluxParCodePage({ searchParams }: { searchParams: 
           <div className="px-6 py-6 sm:px-8">
             <div className="flex flex-wrap items-stretch gap-3">
               <form method="get" className="flex min-w-[260px] flex-1 flex-wrap gap-3">
-                <input
-                  type="text"
-                  name="code"
-                  defaultValue={code}
-                  placeholder="Code, ex: AA4256"
-                  autoFocus
-                  className="min-w-[240px] flex-1 rounded-2xl border-2 border-sky-200 bg-sky-50/50 px-5 py-4 text-xl font-bold text-slate-900 outline-none transition placeholder:font-normal placeholder:text-slate-400 focus:border-sky-500 focus:bg-white"
-                />
+                {/* Taper le debut d'un code (ex : AA) liste tous les codes correspondants */}
+                <ChampCode key={code} valeurInitiale={code} produits={listeCodes.produits} codes={listeCodes.codes} />
                 <button
                   type="submit"
                   className="rounded-full bg-sky-700 px-9 py-4 text-lg font-black text-white shadow-md transition hover:bg-sky-600"
