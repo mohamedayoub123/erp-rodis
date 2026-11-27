@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 // Masque de saisie heure "HH:MM" (24h garanti, jamais le selecteur natif du
 // navigateur - voir commentaire sur les <input type="time"> remplaces).
@@ -70,54 +70,45 @@ export function popTimeDigit(state: TimeMaskState): TimeMaskState {
   return state;
 }
 
-const NAV_KEYS = new Set([
-  "Tab",
-  "ArrowLeft",
-  "ArrowRight",
-  "ArrowUp",
-  "ArrowDown",
-  "Home",
-  "End",
-  "Shift",
-  "Control",
-  "Meta",
-  "Alt",
-  "Enter",
-  "Escape",
-]);
+const VIDE: TimeMaskState = { h: "", m: "", hAutoPadded: false };
 
-// Ce que les claviers de tablette / telephone envoient a la place de la touche tapee : la saisie arrive alors seulement par la valeur du champ
-const TOUCHES_INCONNUES = new Set(["Unidentified", "Process", "Dead"]);
-
-// Meme gestion clavier partagee par TimeTextInput et tout champ heure
-// controle localement (ex: TempsField dans fabrication-form.tsx, qui
-// combine l'heure avec un jour/mois) - un seul setState (React.Dispatch)
-// suffit, jamais 2 implementations du meme pavé de touches a maintenir.
-export function handleTimeKeyDown(
-  event: React.KeyboardEvent<HTMLInputElement>,
-  setState: (updater: (prev: TimeMaskState) => TimeMaskState) => void
-) {
-  if (/^[0-9]$/.test(event.key)) {
-    event.preventDefault();
-    setState((prev) => pushTimeDigit(prev, event.key));
-  } else if (event.key === "Backspace" || event.key === "Delete") {
-    event.preventDefault();
-    setState((prev) => popTimeDigit(prev));
-  } else if (!NAV_KEYS.has(event.key) && !TOUCHES_INCONNUES.has(event.key) && !event.ctrlKey && !event.metaKey) {
-    event.preventDefault();
-  }
+function ajouterChiffres(depart: TimeMaskState, chiffres: string): TimeMaskState {
+  return chiffres.split("").reduce<TimeMaskState>((etat, chiffre) => pushTimeDigit(etat, chiffre), depart);
 }
 
-// Saisie TACTILE (tablette, telephone, stylet, dictee) : le clavier ne dit pas toujours quelle touche est tapee, seule la valeur du champ
-// change. On repart des chiffres de la nouvelle valeur avec le meme masque ; effacer le dernier caractere = Retour arriere.
-// Un vrai clavier ne passe pas ici : handleTimeKeyDown bloque la touche avant que la valeur ne change.
-export function appliquerValeurTapee(prev: TimeMaskState, valeur: string): TimeMaskState {
+// Ce qui a ete ajoute entre l'ancienne et la nouvelle valeur, ou que soit le curseur (et meme si un morceau selectionne a ete remplace)
+function partieAjoutee(avant: string, apres: string): string {
+  let debut = 0;
+  while (debut < avant.length && debut < apres.length && avant[debut] === apres[debut]) debut += 1;
+  let fin = 0;
+  while (fin < avant.length - debut && fin < apres.length - debut && avant[avant.length - 1 - fin] === apres[apres.length - 1 - fin]) fin += 1;
+  return apres.slice(debut, apres.length - fin);
+}
+
+// TOUTE la saisie passe par ici, a partir de la valeur du champ : clavier d'ordinateur, clavier d'iPad ou de telephone, coller, stylet,
+// dictee. Aucune touche n'est bloquee ni reconnue au clavier : les tablettes n'annoncent pas toutes la touche tapee.
+//  * chiffres tapes a la suite : "8" -> "08:", puis les minutes ; "14" -> "14:" ;
+//  * "1:" ou "8h" (un seul chiffre d'heure suivi d'un separateur) -> "01:" ;
+//  * heure deja complete (ex : apres "Maintenant") : le premier chiffre tape apres avoir touche le champ (nouvelleSaisie), ou tape sur une
+//    heure selectionnee, REMPLACE l'ancienne heure ; un chiffre en trop pendant qu'on ecrit est ignore ;
+//  * effacer le dernier caractere = Retour arriere ; les lettres sont ignorees.
+export function appliquerValeurTapee(prev: TimeMaskState, valeur: string, nouvelleSaisie = false): TimeMaskState {
   const avant = renderTimeState(prev);
   if (valeur === avant) return prev;
+  if (!valeur) return VIDE;
+  const heureSeule = /^\s*(\d)\s*[:hH.,;\s-]+$/.exec(valeur);
+  if (heureSeule) return { h: "0" + heureSeule[1], m: "", hAutoPadded: true };
+
+  const ajoutes = partieAjoutee(avant, valeur).replace(/\D/g, "");
+  const complete = prev.h.length === 2 && prev.m.length === 2;
+  if (complete && ajoutes) return nouvelleSaisie || valeur.length <= avant.length ? ajouterChiffres(VIDE, ajoutes) : prev;
+  // Tape a la fin : on continue a partir de ce qui est deja la
+  if (valeur.startsWith(avant)) return ajoutes ? ajouterChiffres(prev, ajoutes) : prev;
+
   const chiffres = valeur.replace(/\D/g, "");
   const effaceALaFin = valeur.length < avant.length && avant.startsWith(valeur);
   if (effaceALaFin && avant.replace(/\D/g, "").length - chiffres.length <= 1) return popTimeDigit(prev);
-  return chiffres.split("").reduce<TimeMaskState>((etat, chiffre) => pushTimeDigit(etat, chiffre), { h: "", m: "", hAutoPadded: false });
+  return ajouterChiffres(VIDE, chiffres);
 }
 
 export function TimeTextInput({
@@ -132,30 +123,30 @@ export function TimeTextInput({
   className?: string;
 }) {
   const [state, setState] = useState<TimeMaskState>(() => parseTimeValue(defaultValue ?? ""));
+  // Vrai quand on vient de toucher le champ : le prochain chiffre commence une nouvelle heure
+  const nouvelleSaisie = useRef(false);
 
   return (
     <input
       type="text"
       name={name}
       inputMode="numeric"
+      autoComplete="off"
+      autoCorrect="off"
+      spellCheck={false}
       placeholder="HH:MM"
       pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
       title="Format 24h, ex: 14:30"
       required={required}
       value={renderTimeState(state)}
-      onKeyDown={(event) => handleTimeKeyDown(event, setState)}
+      onFocus={() => {
+        nouvelleSaisie.current = true;
+      }}
       onChange={(event) => {
         const valeur = event.target.value;
-        setState((prev) => appliquerValeurTapee(prev, valeur));
-      }}
-      onPaste={(event) => {
-        event.preventDefault();
-        const digits = event.clipboardData.getData("text").replace(/\D/g, "").slice(0, 4);
-        setState((prev) => {
-          let next = prev;
-          for (const digit of digits) next = pushTimeDigit(next, digit);
-          return next;
-        });
+        const remplacer = nouvelleSaisie.current;
+        nouvelleSaisie.current = false;
+        setState((prev) => appliquerValeurTapee(prev, valeur, remplacer));
       }}
       className={className}
     />

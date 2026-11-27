@@ -4,14 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { calculerDecalageHorloge, formaterHeureTogo } from "@/lib/heure-togo";
 import { useRestaurationBrouillon } from "./brouillon-formulaire";
 import { heureServeurAction } from "./heure-serveur-actions";
-import {
-  appliquerValeurTapee,
-  handleTimeKeyDown,
-  parseTimeValue,
-  pushTimeDigit,
-  renderTimeState,
-  type TimeMaskState,
-} from "./time-text-input";
+import { appliquerValeurTapee, parseTimeValue, renderTimeState, type TimeMaskState } from "./time-text-input";
 
 // Ecart entre l'horloge de l'appareil et celle du serveur de l'ERP, calcule une seule fois par page
 // (les deux champs heure du formulaire le partagent). null = pas encore synchronise.
@@ -49,6 +42,8 @@ export function TimeTextInputMaintenant({
 }) {
   const [state, setState] = useState<TimeMaskState>(() => parseTimeValue(defaultValue ?? ""));
   const racine = useRef<HTMLDivElement>(null);
+  // Vrai quand on vient de toucher le champ ou d'appuyer sur "Maintenant" : le prochain chiffre tape remplace l'heure
+  const nouvelleSaisie = useRef(false);
 
   // Brouillon du formulaire : l'heure deja saisie est remise apres une actualisation de la page
   useRestaurationBrouillon(racine, (nomChamp, valeurs) => {
@@ -66,34 +61,35 @@ export function TimeTextInputMaintenant({
     if (decalageHorlogeMs === null) await synchroniserHorloge();
     const instant = Date.now() + (decalageHorlogeMs ?? 0);
     setState(parseTimeValue(formaterHeureTogo(instant)));
+    nouvelleSaisie.current = true;
   }
 
   return (
-    <div ref={racine} className="flex items-center gap-2">
+    <div ref={racine} className="flex flex-wrap items-center gap-2">
       <input
         type="text"
+        // Petite largeur de depart : le champ prend la place libre sans pousser le bouton sur la case voisine (iPad)
+        size={5}
         name={name}
         inputMode="numeric"
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
         placeholder="HH:MM"
         pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
         title="Format 24h, ex: 14:30"
         required={required}
         value={renderTimeState(state)}
-        onKeyDown={(event) => handleTimeKeyDown(event, setState)}
+        onFocus={() => {
+          nouvelleSaisie.current = true;
+        }}
         onChange={(event) => {
           const valeur = event.target.value;
-          setState((prev) => appliquerValeurTapee(prev, valeur));
+          const remplacer = nouvelleSaisie.current;
+          nouvelleSaisie.current = false;
+          setState((prev) => appliquerValeurTapee(prev, valeur, remplacer));
         }}
-        onPaste={(event) => {
-          event.preventDefault();
-          const digits = event.clipboardData.getData("text").replace(/\D/g, "").slice(0, 4);
-          setState((prev) => {
-            let next = prev;
-            for (const digit of digits) next = pushTimeDigit(next, digit);
-            return next;
-          });
-        }}
-        className={`min-w-0 flex-1 ${className ?? ""}`}
+        className={`min-w-[5.5rem] flex-1 ${className ?? ""}`}
       />
       <button
         type="button"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { saveFabricationRapportAction } from "../../actions";
 import { DateJmaFormField, MOIS_OPTIONS } from "@/app/_components/date-jma-input";
 import { SubmitButton } from "@/app/_components/submit-button";
@@ -12,7 +12,6 @@ import {
 import {
   type TimeMaskState,
   appliquerValeurTapee,
-  handleTimeKeyDown,
   parseTimeValue,
   renderTimeState,
 } from "@/app/_components/time-text-input";
@@ -93,6 +92,8 @@ export function TempsField({
   const [month, setMonth] = useState(initial.month || defaultDayMonth?.month || "");
   const [timeState, setTimeState] = useState<TimeMaskState>(() => parseTimeValue(initial.time));
   const time = renderTimeState(timeState);
+  // Vrai quand on vient de toucher le champ heure : le prochain chiffre commence une nouvelle heure
+  const nouvelleSaisie = useRef(false);
 
   return (
     <label className="grid gap-1 text-xs font-semibold text-slate-500">
@@ -125,14 +126,21 @@ export function TempsField({
         <input
           type="text"
           inputMode="numeric"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           placeholder="HH:MM"
           pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
           title="Format 24h, ex: 14:30"
           value={time}
-          onKeyDown={(event) => handleTimeKeyDown(event, setTimeState)}
+          onFocus={() => {
+            nouvelleSaisie.current = true;
+          }}
           onChange={(event) => {
             const valeur = event.target.value;
-            setTimeState((prev) => appliquerValeurTapee(prev, valeur));
+            const remplacer = nouvelleSaisie.current;
+            nouvelleSaisie.current = false;
+            setTimeState((prev) => appliquerValeurTapee(prev, valeur, remplacer));
           }}
           required
           className={inputClass}
