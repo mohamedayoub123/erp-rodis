@@ -222,6 +222,9 @@ export default async function ProgrameParLignePage({
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <div className="overflow-x-auto">
             <ProgrammeLigneTable
+              // Une autre grille de depart (programme charge depuis l'historique) = un autre tableau, avec son propre brouillon
+              key={prefillGroupeId ?? "nouveau"}
+              cleBrouillon={String(prefillGroupeId ?? "nouveau")}
               zoneGroups={zoneGroups}
               articles={articles}
               fabricationMachines={fabricationMachines}

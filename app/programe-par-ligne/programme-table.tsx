@@ -1,8 +1,16 @@
 "use client";
 
-import { Fragment, useMemo, useRef, useState, useTransition } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { saveProgrammeLigneBatchAction } from "./actions";
+import {
+  cleChaine,
+  cleLigne,
+  garderBrouillonProgramme,
+  lireBrouillonProgramme,
+  type BrouillonProgramme,
+  type LigneBrouillon,
+} from "./brouillon-programme";
 import type { MachineCapacite } from "@/lib/machine-capacite";
 import {
   TOLERANCE_CARTON,
@@ -128,6 +136,8 @@ type RowState = {
   machineId: number;
   articleId: number | null;
   produit: string;
+  // Texte de la case Produit (garde dans le brouillon, pas envoye au serveur)
+  produitTexte: string;
   typeArticle: string;
   qtCarton: number | null;
   vracAFabriquer: number | null;
@@ -154,7 +164,7 @@ function ProduitCell({
 }: {
   articles: ArticleOption[];
   initialLabel?: string;
-  onSelect: (article: ArticleOption | null) => void;
+  onSelect: (article: ArticleOption | null, texte: string) => void;
 }) {
   const [value, setValue] = useState(initialLabel || "");
   const [showDropdown, setShowDropdown] = useState(false);
@@ -176,7 +186,7 @@ function ProduitCell({
 
   function choisir(article: ArticleOption) {
     setValue(article.label);
-    onSelect(article);
+    onSelect(article, article.label);
     setShowDropdown(false);
   }
 
@@ -212,7 +222,7 @@ function ProduitCell({
         onChange={(event) => {
           setValue(event.target.value);
           setShowDropdown(true);
-          onSelect(null);
+          onSelect(null, event.target.value);
         }}
         onFocus={() => setShowDropdown(true)}
         onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
@@ -466,6 +476,7 @@ function LigneRowCells({
   articles,
   machineTypeProduit,
   selectedArticle,
+  texteProduit,
   quantites,
   batchs,
   alerte,
@@ -479,12 +490,14 @@ function LigneRowCells({
   // type_produit sur cette machine).
   machineTypeProduit: string[];
   selectedArticle: ArticleOption | null;
+  // Texte remis par le brouillon dans la case Produit (au premier affichage)
+  texteProduit?: string;
   quantites: QuantitesLigne;
   // Nombre de batchs du vrac sur la machine Fabrication choisie (Max = taille d'un batch)
   batchs: { nombre: number; max: number } | null;
   // Message en rouge quand la machine Fabrication choisie ne peut pas fabriquer cette quantite (hors Min / Max)
   alerte: string | null;
-  onSelectArticle: (article: ArticleOption | null) => void;
+  onSelectArticle: (article: ArticleOption | null, texte: string) => void;
   onVracChange: (next: string) => void;
 }) {
   const { qtCarton, vracInput, minutes } = quantites;
@@ -500,7 +513,11 @@ function LigneRowCells({
     <>
       <td className="px-4 py-3 text-slate-700">{selectedArticle?.type || "-"}</td>
       <td className="px-4 py-3">
-        <ProduitCell articles={compatibleArticles} initialLabel={selectedArticle?.label} onSelect={onSelectArticle} />
+        <ProduitCell
+          articles={compatibleArticles}
+          initialLabel={texteProduit ?? selectedArticle?.label}
+          onSelect={onSelectArticle}
+        />
       </td>
       <td className="px-4 py-3 text-slate-700">
         {qtCarton !== null ? Math.round(qtCarton).toLocaleString("fr-FR") : "-"}
@@ -543,6 +560,7 @@ function ProgrammeRow({
   prefillMachineFabricationId,
   prefillPlateforme,
   prefillProgramme,
+  texteProduitInitial,
   isLast,
   subRowCount,
   onAddSubRow,
@@ -569,6 +587,7 @@ function ProgrammeRow({
   prefillMachineFabricationId?: number | null;
   prefillPlateforme?: string | null;
   prefillProgramme?: string | null;
+  texteProduitInitial?: string;
   isLast: boolean;
   subRowCount: number;
   onAddSubRow: () => void;
@@ -590,6 +609,8 @@ function ProgrammeRow({
   // le prefill historique ne doit s'appliquer qu'une seule fois, au tout
   // premier rendu.
   const [resetToken, setResetToken] = useState(0);
+  // Texte remis par le brouillon dans la case Produit ; oublie des qu'on change de machine (la case se vide)
+  const [texteProduit, setTexteProduit] = useState(texteProduitInitial);
   // Produit, vrac saisi et machine Fabrication de cette ligne viennent du tableau (etat remonte) : ce sont
   // eux qui servent a partager les 8 h de la chaine entre ses articles (repartirJournee).
   const articleChoisi = etat.articleId != null ? articles.find((a) => a.id === etat.articleId) ?? null : null;
@@ -605,12 +626,13 @@ function ProgrammeRow({
     limitesBatch(articleChoisi, etat.machineFabricationId, machineCapacites)
   );
 
-  function handleSelectArticle(article: ArticleOption | null) {
+  function handleSelectArticle(article: ArticleOption | null, texte: string) {
     // Qt carton et Vrac sont recalcules par le tableau (capacite de la chaine partagee entre ses articles)
     onEtat({ articleId: article?.id ?? null });
     handleUpdate({
       articleId: article?.id ?? null,
       produit: article?.label ?? "",
+      produitTexte: texte,
       typeArticle: article?.type ?? "",
     });
   }
@@ -639,12 +661,14 @@ function ProgrammeRow({
             onChange={(nextMachine) => {
               setMachine(nextMachine);
               setResetToken((token) => token + 1);
+              setTexteProduit(undefined);
               onEtat({ machineId: nextMachine.machineId, articleId: null, vracInput: "", vracManuel: false });
               handleUpdate({
                 machineId: nextMachine.machineId,
                 chaine: nextMachine.chaine,
                 articleId: null,
                 produit: "",
+                produitTexte: "",
                 typeArticle: "",
                 vracAFabriquer: null,
                 qtCarton: null,
@@ -661,6 +685,7 @@ function ProgrammeRow({
         articles={articles}
         machineTypeProduit={machine.typeProduit}
         selectedArticle={articleChoisi}
+        texteProduit={texteProduit}
         quantites={quantites}
         batchs={batchs}
         alerte={alerteFabrication}
@@ -722,6 +747,7 @@ export function ProgrammeLigneTable({
   prefillRemarque = "",
   canChangerMachine,
   machineCapacites,
+  cleBrouillon,
 }: {
   zoneGroups: LigneRow[][];
   articles: ArticleOption[];
@@ -730,6 +756,8 @@ export function ProgrammeLigneTable({
   prefillRemarque?: string;
   canChangerMachine: boolean;
   machineCapacites: MachineCapacite[];
+  // Un brouillon par grille de depart (vide, ou programme charge depuis l'historique)
+  cleBrouillon: string;
 }) {
   const router = useRouter();
   const capacitesByMachineArticle = useMemo(() => {
@@ -810,41 +838,68 @@ export function ProgrammeLigneTable({
     return subRowCounts[groupKey] ?? 1;
   }
 
+  // Lignes remises par le brouillon, par position dans la grille (vide tant qu'aucun brouillon n'est repris)
+  const [lignesReprises, setLignesReprises] = useState<Record<string, LigneBrouillon>>({});
+
+  // La ligne de depart de la grille : programme de l'historique charge, sinon vide
+  function ligneDeBase(key: string, row: LigneRow): RowState {
+    const prefill = prefillByKey.map.get(key);
+    return prefill
+      ? {
+          zone: row.zone,
+          chaine: row.chaine,
+          machineId: row.machineId,
+          articleId: prefill.article_id,
+          produit: prefill.produit || "",
+          produitTexte: articles.find((article) => article.id === prefill.article_id)?.label ?? "",
+          typeArticle: prefill.type_article || "",
+          qtCarton: prefill.qt_carton,
+          vracAFabriquer: prefill.vrac_a_fabriquer,
+          plateforme: prefill.plateforme || "",
+          programe: prefill.programe || "",
+          machineFabricationId: prefill.machine_fabrication_id ?? null,
+        }
+      : {
+          zone: row.zone,
+          chaine: row.chaine,
+          machineId: row.machineId,
+          articleId: null,
+          produit: "",
+          produitTexte: "",
+          typeArticle: "",
+          qtCarton: null,
+          vracAFabriquer: null,
+          plateforme: "",
+          programe: "",
+          machineFabricationId: null,
+        };
+  }
+
   function ensureRow(key: string, row: LigneRow) {
     if (!rowsRef.current[key]) {
-      const prefill = prefillByKey.map.get(key);
-      rowsRef.current[key] = prefill
-        ? {
-            zone: row.zone,
-            chaine: row.chaine,
-            machineId: row.machineId,
-            articleId: prefill.article_id,
-            produit: prefill.produit || "",
-            typeArticle: prefill.type_article || "",
-            qtCarton: prefill.qt_carton,
-            vracAFabriquer: prefill.vrac_a_fabriquer,
-            plateforme: prefill.plateforme || "",
-            programe: prefill.programe || "",
-            machineFabricationId: prefill.machine_fabrication_id ?? null,
-          }
-        : {
-            zone: row.zone,
-            chaine: row.chaine,
-            machineId: row.machineId,
-            articleId: null,
-            produit: "",
-            typeArticle: "",
-            qtCarton: null,
-            vracAFabriquer: null,
-            plateforme: "",
-            programe: "",
-            machineFabricationId: null,
-          };
+      const reprise = lignesReprises[key];
+      rowsRef.current[key] = {
+        ...ligneDeBase(key, row),
+        ...(reprise
+          ? {
+              chaine: reprise.chaine,
+              machineId: reprise.machineId,
+              articleId: reprise.articleId,
+              produit: reprise.produit,
+              produitTexte: reprise.produitTexte,
+              typeArticle: reprise.typeArticle,
+              plateforme: reprise.plateforme,
+              programe: reprise.programe,
+              machineFabricationId: reprise.machineFabricationId,
+            }
+          : {}),
+      };
     }
   }
 
   function updateRow(key: string, partial: Partial<RowState>) {
     rowsRef.current[key] = { ...rowsRef.current[key], ...partial };
+    planifierBrouillon();
   }
 
   // Etat des quantites par ligne. Une ligne qui n'a pas encore ete touchee part du programme de
@@ -852,6 +907,20 @@ export function ProgrammeLigneTable({
   const [etats, setEtats] = useState<Record<string, EtatLigne>>({});
 
   function etatInitial(key: string, row: LigneRow): EtatLigne {
+    const reprise = lignesReprises[key];
+    if (reprise) {
+      return {
+        machineId: reprise.machineId,
+        articleId: reprise.articleId,
+        vracInput: reprise.vracInput,
+        vracManuel: reprise.vracManuel,
+        machineFabricationId: reprise.machineFabricationId,
+      };
+    }
+    return etatDeBase(key, row);
+  }
+
+  function etatDeBase(key: string, row: LigneRow): EtatLigne {
     const prefill = prefillByKey.map.get(key);
     const vracPrefill = prefill?.vrac_a_fabriquer != null ? String(prefill.vrac_a_fabriquer) : "";
     return {
@@ -896,6 +965,11 @@ export function ProgrammeLigneTable({
 
   function removeSubRow(groupKey: string, rowKey: string) {
     delete rowsRef.current[rowKey];
+    setLignesReprises((current) => {
+      const suite = { ...current };
+      delete suite[rowKey];
+      return suite;
+    });
     setEtats((current) => {
       const suite = { ...current };
       delete suite[rowKey];
@@ -905,6 +979,142 @@ export function ProgrammeLigneTable({
       ...current,
       [groupKey]: Math.max(1, getSubRowCount(groupKey) - 1),
     }));
+  }
+
+  // BROUILLON : ce qui est ecrit reste apres une actualisation de la page (voir brouillon-programme.ts)
+  const [repris, setRepris] = useState<"non" | "saisie" | "saisie-pendant-envoi">("non");
+  const brouillonPret = useRef(false);
+  const envoiEnCours = useRef(false);
+  const attenteBrouillon = useRef<number | null>(null);
+
+  // Ce qui differe de la grille de depart ; null quand rien n'est saisi
+  function photographier(): Omit<BrouillonProgramme, "t"> | null {
+    const lignes: Record<string, LigneBrouillon> = {};
+    const nbLignes: Record<string, number> = {};
+    zoneGroups.forEach((group, groupIndex) => {
+      group.forEach((row, rowIndex) => {
+        const groupKey = `${groupIndex}-${rowIndex}`;
+        const nombre = getSubRowCount(groupKey);
+        if (nombre !== (prefillByKey.countByGroupKey[groupKey] ?? 1)) nbLignes[cleChaine(row.zone, row.chaine)] = nombre;
+        for (let rang = 0; rang < nombre; rang++) {
+          const key = `${groupKey}-${rang}`;
+          const saisie = rowsRef.current[key];
+          if (!saisie) continue;
+          const photo = (ligne: RowState, etat: EtatLigne): LigneBrouillon => ({
+            machineId: ligne.machineId,
+            chaine: ligne.chaine,
+            articleId: ligne.articleId,
+            produit: ligne.produit,
+            produitTexte: ligne.produitTexte,
+            typeArticle: ligne.typeArticle,
+            plateforme: ligne.plateforme,
+            programe: ligne.programe,
+            machineFabricationId: ligne.machineFabricationId,
+            vracInput: etat.vracInput,
+            vracManuel: etat.vracManuel,
+          });
+          const actuelle = photo(saisie, etats[key] ?? etatInitial(key, row));
+          if (JSON.stringify(actuelle) !== JSON.stringify(photo(ligneDeBase(key, row), etatDeBase(key, row)))) {
+            lignes[cleLigne(row.zone, row.chaine, rang)] = actuelle;
+          }
+        }
+      });
+    });
+    const rienSaisi =
+      Object.keys(lignes).length === 0 &&
+      Object.keys(nbLignes).length === 0 &&
+      !jourDate &&
+      !moisDate &&
+      !anneeDate &&
+      remarque === prefillRemarque;
+    return rienSaisi
+      ? null
+      : { jour: jourDate, mois: moisDate, annee: anneeDate, remarque, nbLignes, lignes, envoi: envoiEnCours.current };
+  }
+
+  // La derniere version de photographier (elle lit l'etat de l'affichage en cours)
+  const photographierRef = useRef(photographier);
+
+  function sauvegarderBrouillon() {
+    if (brouillonPret.current) garderBrouillonProgramme(cleBrouillon, photographierRef.current());
+  }
+
+  function planifierBrouillon() {
+    if (attenteBrouillon.current !== null) window.clearTimeout(attenteBrouillon.current);
+    attenteBrouillon.current = window.setTimeout(sauvegarderBrouillon, 150);
+  }
+
+  // Apres chaque affichage : la saisie a peut-etre change
+  useEffect(() => {
+    photographierRef.current = photographier;
+    planifierBrouillon();
+  });
+
+  // Remet la grille comme dans le brouillon (ou comme au depart avec null) : les lignes sont reconstruites
+  function reconstruireGrille(brouillon: BrouillonProgramme | null) {
+    const reprises: Record<string, LigneBrouillon> = {};
+    const nombres: Record<string, number> = { ...prefillByKey.countByGroupKey };
+    if (brouillon) {
+      zoneGroups.forEach((group, groupIndex) => {
+        group.forEach((row, rowIndex) => {
+          const groupKey = `${groupIndex}-${rowIndex}`;
+          const nombre = brouillon.nbLignes[cleChaine(row.zone, row.chaine)];
+          if (nombre) nombres[groupKey] = nombre;
+          for (let rang = 0; rang < (nombres[groupKey] ?? 1); rang++) {
+            const ligne = brouillon.lignes[cleLigne(row.zone, row.chaine, rang)];
+            // Une machine qui n'est plus dans cette zone : la ligne n'est pas remise
+            if (ligne && group.some((machine) => machine.machineId === ligne.machineId)) {
+              reprises[`${groupKey}-${rang}`] = ligne;
+            }
+          }
+        });
+      });
+    }
+    rowsRef.current = {};
+    setLignesReprises(reprises);
+    setEtats({});
+    setSubRowCounts(nombres);
+    setJourDate(brouillon?.jour ?? "");
+    setMoisDate(brouillon?.mois ?? "");
+    setAnneeDate(brouillon?.annee ?? "");
+    setRemarque(brouillon?.remarque ?? prefillRemarque);
+    setResetKey((current) => current + 1);
+  }
+
+  // A l'ouverture : reprend le brouillon de cet appareil, puis garde chaque changement (aussi en quittant la page)
+  useEffect(() => {
+    const reprise = window.setTimeout(() => {
+      const garde = lireBrouillonProgramme(cleBrouillon);
+      if (garde) {
+        envoiEnCours.current = garde.envoi;
+        reconstruireGrille(garde);
+        setRepris(garde.envoi ? "saisie-pendant-envoi" : "saisie");
+      }
+      brouillonPret.current = true;
+    }, 0);
+    const surDepart = () => sauvegarderBrouillon();
+    const surVisibilite = () => {
+      if (document.visibilityState === "hidden") sauvegarderBrouillon();
+    };
+    window.addEventListener("pagehide", surDepart);
+    document.addEventListener("visibilitychange", surVisibilite);
+    return () => {
+      window.clearTimeout(reprise);
+      sauvegarderBrouillon();
+      brouillonPret.current = false;
+      if (attenteBrouillon.current !== null) window.clearTimeout(attenteBrouillon.current);
+      window.removeEventListener("pagehide", surDepart);
+      document.removeEventListener("visibilitychange", surVisibilite);
+    };
+    // Une seule fois a l'ouverture : le tableau est recree quand la grille de depart change (voir page.tsx)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function repartirDeZero() {
+    if (!window.confirm("Effacer tout ce qui est ecrit sur cette page ?")) return;
+    envoiEnCours.current = false;
+    reconstruireGrille(null);
+    setRepris("non");
   }
 
   // "Dispatch" fait tout comme avant (Historique + Programme Dispatcher/
@@ -946,20 +1156,39 @@ export function ProgrammeLigneTable({
     formData.set("remarque", remarque);
     formData.set("with_dispatch", withDispatch ? "1" : "0");
 
+    // Si la page est actualisee pendant l'enregistrement, le brouillon le dira (pour ne pas enregistrer 2 fois)
+    envoiEnCours.current = true;
+    sauvegarderBrouillon();
+    const echec = (texte: string) => {
+      envoiEnCours.current = false;
+      setErrorMessage(texte);
+      planifierBrouillon();
+    };
+
     startTransition(async () => {
       try {
         const result = await saveProgrammeLigneBatchAction(formData);
 
         if (!result.ok) {
-          setErrorMessage(result.message);
+          echec(result.message);
           return;
         }
+        // Enregistre : le brouillon n'a plus de raison d'etre (plus aucune sauvegarde avant de quitter la page)
+        envoiEnCours.current = false;
+        brouillonPret.current = false;
+        garderBrouillonProgramme(cleBrouillon, null);
 
         setMessage(`Enregistre sous le code ${result.code}.`);
         setDispatchWarnings(result.warnings);
         rowsRef.current = {};
+        setLignesReprises({});
         setEtats({});
         setSubRowCounts({});
+        setJourDate("");
+        setMoisDate("");
+        setAnneeDate("");
+        setRemarque(prefillRemarque);
+        setRepris("non");
         setResetKey((current) => current + 1);
         // Dispatch redirige vers Ravitailleur, la ou le programme vient d'etre
         // reparti en lots ; Save redirige directement sur le programme (PL) qui
@@ -976,7 +1205,7 @@ export function ProgrammeLigneTable({
           router.push(`/historique-programme/${result.groupe_id}`);
         }
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'enregistrement.");
+        echec(error instanceof Error ? error.message : "Erreur pendant l'enregistrement.");
       }
     });
   }
@@ -984,6 +1213,26 @@ export function ProgrammeLigneTable({
   return (
     <div>
       <div className="flex flex-wrap items-end gap-3 border-b border-slate-100 px-4 py-4">
+        {repris !== "non" ? (
+          <div className="flex w-full flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+            <span>
+              Ta saisie a ete retrouvee : ce que tu avais ecrit est remis. Rien n&apos;est enregistre tant que tu n&apos;as pas fait
+              Save ou Dispatch.
+              {repris === "saisie-pendant-envoi" ? (
+                <span className="mt-1 block text-red-700">
+                  Attention : un enregistrement etait en cours. Regarde l&apos;Historique programme avant de refaire Save ou Dispatch.
+                </span>
+              ) : null}
+            </span>
+            <button
+              type="button"
+              onClick={repartirDeZero}
+              className="rounded-full border border-amber-300 bg-white px-4 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100"
+            >
+              Repartir de zero
+            </button>
+          </div>
+        ) : null}
         <p className="w-full text-xs font-semibold text-slate-500">Ce programme est pour quel jour ?</p>
         <label className="grid gap-1 text-xs font-semibold text-slate-500">
           Jour
@@ -1104,13 +1353,16 @@ export function ProgrammeLigneTable({
                   ensureRow(key, row);
                   const isLast = subIndex === subRowCount - 1;
                   const prefill = prefillByKey.map.get(key);
+                  const reprise = lignesReprises[key];
 
                   return (
                     <ProgrammeRow
                       key={key}
                       zoneLabel={subIndex === 0 ? row.zone : ""}
                       zoneMachineOptions={group}
-                      defaultMachine={row}
+                      defaultMachine={
+                        reprise ? group.find((machine) => machine.machineId === reprise.machineId) ?? row : row
+                      }
                       canChangerMachine={canChangerMachine}
                       articles={articles}
                       fabricationMachines={fabricationMachines}
@@ -1120,10 +1372,11 @@ export function ProgrammeLigneTable({
                         quantitesParLigne.get(key) ?? { vracInput: "", vrac: null, qtCarton: null, minutes: null }
                       }
                       onEtat={(partial) => changerEtat(key, row, partial)}
-                      prefillTypeArticle={prefill?.type_article}
-                      prefillMachineFabricationId={prefill?.machine_fabrication_id}
-                      prefillPlateforme={prefill?.plateforme}
-                      prefillProgramme={prefill?.programe}
+                      prefillTypeArticle={reprise ? reprise.typeArticle : prefill?.type_article}
+                      prefillMachineFabricationId={reprise ? reprise.machineFabricationId : prefill?.machine_fabrication_id}
+                      prefillPlateforme={reprise ? reprise.plateforme || null : prefill?.plateforme}
+                      prefillProgramme={reprise ? reprise.programe : prefill?.programe}
+                      texteProduitInitial={reprise?.produitTexte}
                       isLast={isLast}
                       subRowCount={subRowCount}
                       onAddSubRow={() => addSubRow(groupKey)}
