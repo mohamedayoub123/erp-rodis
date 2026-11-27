@@ -18,6 +18,7 @@ import { ArretsParCause } from "./arrets-par-cause";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { TimeTextInputMaintenant } from "@/app/_components/time-text-input-maintenant";
 import { BrouillonFormulaire } from "@/app/_components/brouillon-formulaire";
+import { SQL_VRAC_CODE_PAYS, colonnesVracEtCodePaysPresentes } from "@/lib/conditionnement-vrac-code-pays";
 
 // Meme liste que l'Entree simple (conditionnement/[ligneId]/page.tsx) - dupliquee volontairement pour ne
 // jamais faire deriver l'Entree simple en touchant ce fichier.
@@ -123,10 +124,11 @@ export default async function ConditionnementParLignePage({
   }
   const equipe = equipeData as EquipeInfo | null;
 
-  const [erreurFabricationRequise, modesSaisie, infosArticle] = await Promise.all([
+  const [erreurFabricationRequise, modesSaisie, infosArticle, avecVracEtCodePays] = await Promise.all([
     messageSiConditionnementInvalide(ligne.id, code),
     fetchModesSaisieConditionnement(ligne.id, code, ligne.numero_lot),
     fetchInfosArticleLigne(ligne.id),
+    colonnesVracEtCodePaysPresentes(),
   ]);
   const { piecesParCarton } = infosArticle;
   // Chaque Enregistrer est une NOUVELLE fournee : date de fabrication = aujourd'hui (jour, mois, annee
@@ -273,6 +275,20 @@ export default async function ConditionnementParLignePage({
                     defaultFabrication=""
                     dureeAns={infosArticle.dureeConservationAns}
                   />
+                  {avecVracEtCodePays ? (
+                    <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                      Code pays (Ouganda)
+                      <input
+                        type="text"
+                        name="code_pays"
+                        placeholder="Seulement s'il y en a un"
+                        autoCapitalize="characters"
+                        autoComplete="off"
+                        className={CHAMP}
+                      />
+                      <span className="font-normal">Se remplit tout seul dans l&apos;Entree Production.</span>
+                    </label>
+                  ) : null}
                 </div>
               </div>
 
@@ -307,7 +323,27 @@ export default async function ConditionnementParLignePage({
                       <input type="number" step="0.01" name={dechet.field} defaultValue="0" required className={CHAMP} />
                     </label>
                   ))}
+                  {avecVracEtCodePays ? (
+                    <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                      Vrac (kg)
+                      <input
+                        type="number"
+                        step="0.001"
+                        min="0"
+                        name="dechet_vrac"
+                        defaultValue="0"
+                        required
+                        className={CHAMP}
+                      />
+                    </label>
+                  ) : null}
                 </div>
+                {!avecVracEtCodePays && isAdminUser(currentStockUser) ? (
+                  <p className="mt-3 rounded-2xl bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">
+                    Pour ajouter « Vrac (kg) » et « Code pays » : le fichier {SQL_VRAC_CODE_PAYS} doit d&apos;abord etre
+                    execute dans Supabase (SQL Editor).
+                  </p>
+                ) : null}
               </div>
 
               <div>

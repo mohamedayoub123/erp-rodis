@@ -1045,6 +1045,11 @@ export async function saveConditionnementParLigneAction(formData: FormData) {
       redirect(`${urlPage}&erreur=${encodeURIComponent(erreurVrac)}`);
     }
 
+    const dechetVrac = parseOptionalNumber(formData, "dechet_vrac");
+    if (dechetVrac !== null && dechetVrac < 0) {
+      throw new Error("Le dechet de vrac (kg) ne peut pas etre negatif.");
+    }
+
     const relevesPoids = lireReleves(formData, "poids");
     const relevesCadence = lireReleves(formData, "cadence");
     const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
@@ -1103,6 +1108,9 @@ export async function saveConditionnementParLigneAction(formData: FormData) {
         releves_cadence: relevesCadence,
         casiers_coches: casiersCoches,
         pieces_par_casier: piecesParCasier,
+        // Vrac jete (kg) et code pays : ces champs n'existent dans le formulaire que si leurs colonnes existent (SQL lance)
+        ...(formData.has("dechet_vrac") ? { dechet_vrac: dechetVrac } : {}),
+        ...(formData.has("code_pays") ? { code_pays: parseOptionalText(formData, "code_pays") } : {}),
         utilisateur_conditionnement: currentUser,
         date_saisie_conditionnement: new Date().toISOString(),
       },

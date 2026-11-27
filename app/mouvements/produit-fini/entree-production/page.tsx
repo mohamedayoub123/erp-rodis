@@ -6,6 +6,12 @@ import { fetchWebMouvementSourceRows } from "../../shared";
 import { EntreeProductionBoard, type EntreeDateGroup, type EntreeDateGroupLigne } from "./entree-production-board";
 import { cleChoix, lireTousLesChoix } from "@/lib/conditionnement-codes-vrac";
 import { repartirQuantite } from "@/lib/repartition-codes-vrac";
+import {
+  cleCodePays,
+  codesPaysDistincts,
+  lireCodesPaysConditionnement,
+  type SaisieCodePays,
+} from "@/lib/conditionnement-vrac-code-pays";
 
 type EmballageEntryRow = {
   id: number;
@@ -143,11 +149,14 @@ export default async function EntreeProductionPage() {
   ]);
 
   const ligneIds = [...new Set(pendingEntries.map((entry) => entry.programme_ligne_id))];
-  const [ligneById, rapportById, resultatChoix] = await Promise.all([
+  const [ligneById, rapportById, resultatChoix, codesPaysParLigneCode] = await Promise.all([
     fetchLignesInfo(ligneIds),
     fetchRapportsInfo(ligneIds),
     lireTousLesChoix(),
+    lireCodesPaysConditionnement(ligneIds),
   ]);
+  // Codes pays saisis au Conditionnement (Entree par ligne), reunis par ligne affichee : proposes dans la case "Code Ouganda"
+  const saisiesParLigneAffichee = new Map<DateGroupLigne, SaisieCodePays[]>();
   // Codes vrac choisis au Conditionnement (Dashboard) : le lot du produit fini est le code vrac CHOISI, pas le code du programme. Table absente
   // (script SQL pas lance) : aucun choix, tout se passe comme avant.
   const choixParLigneCode = resultatChoix.ok ? resultatChoix.parLigneCode : new Map();
@@ -198,12 +207,19 @@ export default async function EntreeProductionPage() {
     const ligneCodes = (ligne?.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
     const codeProgramme = entry.code || (ligneCodes.length <= 1 ? ligne?.numero_lot || "" : "");
     const choixLigne = codeProgramme ? choixParLigneCode.get(cleChoix(entry.programme_ligne_id, codeProgramme)) ?? [] : [];
+    // Code pays de cette ligne + ce code (une ancienne fournee sans code ne compte que pour une ligne a un seul code)
+    const saisiesCodePays = [
+      ...(codesPaysParLigneCode.get(cleCodePays(entry.programme_ligne_id, codeProgramme)) ?? []),
+      ...(codeProgramme && ligneCodes.length <= 1
+        ? codesPaysParLigneCode.get(cleCodePays(entry.programme_ligne_id, "")) ?? []
+        : []),
+    ];
 
     // Plusieurs codes vrac choisis : UNE ligne de stock par code, les cartons repartis selon les kg choisis (jamais fusionnee avec d'autres
     // entrees : toutes les lignes soeurs se valident ensemble, voir partageDe)
     if (choixLigne.length >= 2) {
       repartirQuantite(Number(entry.quantite), choixLigne).forEach((part, rang) => {
-        group.lignes.push({
+        const ligneRepartie: DateGroupLigne = {
           cle: `${entry.id}~${rang}`,
           partageDe: entry.id,
           entryIds: [entry.id],
@@ -212,8 +228,11 @@ export default async function EntreeProductionPage() {
           quantite: part.quantite,
           dateFabrication: entryDate,
           datePeremption: rapport?.date_peremption || "",
+          codesPays: [],
           hasArticle: Boolean(ligne?.article_id),
-        });
+        };
+        saisiesParLigneAffichee.set(ligneRepartie, saisiesCodePays);
+        group.lignes.push(ligneRepartie);
       });
       continue;
     }
@@ -231,6 +250,10 @@ export default async function EntreeProductionPage() {
     if (existingLigne) {
       existingLigne.entryIds.push(entry.id);
       existingLigne.quantite += Number(entry.quantite);
+      saisiesParLigneAffichee.set(existingLigne, [
+        ...(saisiesParLigneAffichee.get(existingLigne) ?? []),
+        ...saisiesCodePays,
+      ]);
     } else {
       const nouvelleLigne: DateGroupLigne = {
         cle: String(entry.id),
@@ -245,6 +268,7 @@ export default async function EntreeProductionPage() {
         // reel. Reste modifiable a l'ecran avant de valider.
         dateFabrication: entryDate,
         datePeremption: rapport?.date_peremption || "",
+        codesPays: [],
         // Le code peut manquer (ligne decoupee en plusieurs lots, entree pas
         // encore resaisie depuis l'ajout du suivi par code) mais reste
         // modifiable a l'ecran juste avant de valider - seul l'article
@@ -253,7 +277,12 @@ export default async function EntreeProductionPage() {
       };
       group.lignesByKey.set(mergeKey, nouvelleLigne);
       group.lignes.push(nouvelleLigne);
+      saisiesParLigneAffichee.set(nouvelleLigne, saisiesCodePays);
     }
+  }
+
+  for (const [ligneAffichee, saisies] of saisiesParLigneAffichee) {
+    ligneAffichee.codesPays = codesPaysDistincts(saisies);
   }
 
   // Tri par jour reel de saisie (date) puis par date d'entrer - plusieurs

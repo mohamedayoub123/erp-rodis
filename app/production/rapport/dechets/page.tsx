@@ -18,6 +18,7 @@ import {
   splitLigneIntoDisplayRows,
   type ProgrammeLigneRow,
 } from "../../suivi/data";
+import { colonnesVracEtCodePaysPresentes } from "@/lib/conditionnement-vrac-code-pays";
 
 // Rapport Dechets : par code, pieces reellement fabriquees (carton fabrique
 // x piece_par_carton, meme facteur que Rapport Balance Matiere) vs pieces
@@ -35,10 +36,13 @@ const DECHET_FIELDS = [
   "dechet_etui",
 ] as const;
 
-type DechetRow = { programme_ligne_id: number; code: string } & Record<
+type DechetRow = { programme_ligne_id: number; code: string; dechet_vrac?: number | null } & Record<
   (typeof DECHET_FIELDS)[number],
   number | null
 >;
+
+// Dechets d'un code : des PIECES (les 7 champs ci-dessus) et, a part, le vrac jete en KG (jamais additionne aux pieces)
+type Dechets = { pieces: number; vracKg: number };
 
 // Lu depuis production_carton_entries (une ligne PAR FOURNEE), PAS depuis
 // production_rapports - ce dernier ne garde qu'une seule ligne par code,
@@ -47,11 +51,11 @@ type DechetRow = { programme_ligne_id: number; code: string } & Record<
 // meme code recevait une fournee plus recente (meme bug reel deja corrige
 // pour Rapport Temps d'Arret, voir
 // app/production/rapport/temps-arret/page.tsx).
-async function fetchDechetsByLigneCode(ligneIds: number[]): Promise<Map<string, number>> {
-  const map = new Map<string, number>();
+async function fetchDechetsByLigneCode(ligneIds: number[], avecVrac: boolean): Promise<Map<string, Dechets>> {
+  const map = new Map<string, Dechets>();
   if (ligneIds.length === 0) return map;
 
-  const columns = ["programme_ligne_id", "code", ...DECHET_FIELDS].join(", ");
+  const columns = ["programme_ligne_id", "code", ...DECHET_FIELDS, ...(avecVrac ? ["dechet_vrac"] : [])].join(", ");
   let from = 0;
   const pageSize = 1000;
 
@@ -68,7 +72,8 @@ async function fetchDechetsByLigneCode(ligneIds: number[]): Promise<Map<string, 
     for (const row of chunk) {
       const total = DECHET_FIELDS.reduce((sum, field) => sum + Number(row[field] ?? 0), 0);
       const key = `${row.programme_ligne_id}::${row.code}`;
-      map.set(key, (map.get(key) ?? 0) + total);
+      const avant = map.get(key) ?? { pieces: 0, vracKg: 0 };
+      map.set(key, { pieces: avant.pieces + total, vracKg: avant.vracKg + Number(row.dechet_vrac ?? 0) });
     }
 
     if (chunk.length < pageSize) break;
@@ -144,7 +149,12 @@ export default async function RapportDechetsPage({ searchParams }: { searchParam
   );
 
   const articleFactors = await fetchArticleKgFactorsByIds(lignes.map((ligne) => ligne.article_id));
-  const dechetByKey = await fetchDechetsByLigneCode(lignes.map((ligne) => ligne.id));
+  // Vrac jete (kg) : colonne affichee seulement quand son SQL est lance
+  const avecVrac = await colonnesVracEtCodePaysPresentes();
+  const dechetByKey = await fetchDechetsByLigneCode(
+    lignes.map((ligne) => ligne.id),
+    avecVrac
+  );
 
   const cartonByLigne = groupCartonEntriesByLigne(cartonEntries);
 
@@ -193,7 +203,8 @@ export default async function RapportDechetsPage({ searchParams }: { searchParam
       // Pieces reellement fabriquees (carton x piece_par_carton) - "-" si
       // le facteur manque, plutot que d'afficher 0 (trompeur).
       const pieces = pieceParCarton !== null && pieceParCarton > 0 ? cartonFabrique * pieceParCarton : null;
-      const dechet = dechetByKey.get(`${ligne.id}::${code}`) ?? 0;
+      const dechet = dechetByKey.get(`${ligne.id}::${code}`)?.pieces ?? 0;
+      const vracKg = dechetByKey.get(`${ligne.id}::${code}`)?.vracKg ?? 0;
       const pct = pieces !== null && pieces + dechet > 0 ? (dechet / (pieces + dechet)) * 100 : null;
 
       return {
@@ -206,6 +217,7 @@ export default async function RapportDechetsPage({ searchParams }: { searchParam
         produit: ligne.produit || "-",
         pieces,
         dechet,
+        vracKg,
         pct,
       };
     });
@@ -221,7 +233,7 @@ export default async function RapportDechetsPage({ searchParams }: { searchParam
   const rows = allRows
     .filter((row) => {
       if (row.statut !== "Termine" && row.statut !== "Termine Manuel") return false;
-      if ((row.pieces ?? 0) <= 0 && row.dechet <= 0) return false;
+      if ((row.pieces ?? 0) <= 0 && row.dechet <= 0 && row.vracKg <= 0) return false;
       if (produitFilter && !row.produit.toLowerCase().includes(produitFilter)) return false;
       if (codeFilter && !row.code.toLowerCase().includes(codeFilter)) return false;
       if (dateDebutFilter && row.date < dateDebutFilter) return false;
@@ -253,7 +265,11 @@ export default async function RapportDechetsPage({ searchParams }: { searchParam
     pieces: row.pieces !== null ? Math.round(row.pieces) : "",
     dechet: Math.round(row.dechet),
     pctLabel: row.pct !== null ? `${row.pct.toFixed(1)}%` : "",
+    vracKg: Math.round(row.vracKg * 1000) / 1000,
   }));
+  const colonnesExport = avecVrac ? [...EXPORT_COLUMNS, { label: "Vrac jete (kg)", key: "vracKg" }] : EXPORT_COLUMNS;
+  const totalVracKg = rows.reduce((sum, row) => sum + row.vracKg, 0);
+  const formaterKg = (valeur: number) => valeur.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 
   const buildPageHref = (page: number) => {
     const qs = new URLSearchParams();
@@ -288,7 +304,7 @@ export default async function RapportDechetsPage({ searchParams }: { searchParam
               <BackButton href="/production/rapport" label="Retour rapports" />
               <ExportExcelButton
                 rows={exportRows}
-                columns={EXPORT_COLUMNS}
+                columns={colonnesExport}
                 filename={`rapport-dechets-${new Date().toISOString().slice(0, 10)}.xlsx`}
               />
               <RefreshButton />
@@ -345,7 +361,7 @@ export default async function RapportDechetsPage({ searchParams }: { searchParam
           </form>
         </section>
 
-        <section className="grid gap-4 sm:grid-cols-3">
+        <section className={`grid gap-4 ${avecVrac ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
           <div className="rounded-[1.75rem] border border-black/5 bg-sky-50 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-sky-700">
               Total pieces fabriquees
@@ -362,6 +378,12 @@ export default async function RapportDechetsPage({ searchParams }: { searchParam
               {totalPct !== null ? `${totalPct.toFixed(1)}%` : "-"}
             </p>
           </div>
+          {avecVrac ? (
+            <div className="rounded-[1.75rem] border border-black/5 bg-amber-50 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-amber-700">Vrac jete (kg)</p>
+              <p className="mt-2 text-3xl font-black text-amber-900">{formaterKg(totalVracKg)}</p>
+            </div>
+          ) : null}
         </section>
 
         {rows.length === 0 ? (
@@ -386,6 +408,11 @@ export default async function RapportDechetsPage({ searchParams }: { searchParam
                       Dechets
                     </th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">% dechet</th>
+                    {avecVrac ? (
+                      <th className="sticky top-0 z-10 bg-amber-50 px-4 py-3 font-semibold text-amber-800">
+                        Vrac jete (kg)
+                      </th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -403,6 +430,9 @@ export default async function RapportDechetsPage({ searchParams }: { searchParam
                       </td>
                       <td className="bg-red-50/30 px-4 py-3 text-slate-600">{Math.round(row.dechet)}</td>
                       <PctDechetCell value={row.pct} />
+                      {avecVrac ? (
+                        <td className="bg-amber-50/30 px-4 py-3 text-slate-600">{formaterKg(row.vracKg)}</td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>

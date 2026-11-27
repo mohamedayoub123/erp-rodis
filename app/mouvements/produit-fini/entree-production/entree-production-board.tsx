@@ -21,6 +21,8 @@ export type EntreeDateGroupLigne = {
   quantite: number;
   dateFabrication: string;
   datePeremption: string;
+  // Codes pays saisis au Conditionnement, le dernier en premier (vide si aucun) : le premier remplit la case "Code Ouganda"
+  codesPays: string[];
   hasArticle: boolean;
 };
 
@@ -246,9 +248,18 @@ export function EntreeProductionBoard({
                                 <input
                                   type="text"
                                   name={`codepays_${representativeId}`}
+                                  defaultValue={ligne.codesPays[0] ?? ""}
                                   placeholder="Code Ouganda"
                                   className="w-28 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
                                 />
+                                {ligne.codesPays.length === 1 ? (
+                                  <p className="mt-1 text-[11px] font-semibold text-sky-700">Saisi au Conditionnement</p>
+                                ) : null}
+                                {ligne.codesPays.length > 1 ? (
+                                  <p className="mt-1 max-w-[11rem] text-[11px] font-semibold text-amber-700">
+                                    Plusieurs codes saisis au Conditionnement : {ligne.codesPays.join(", ")} - verifie
+                                  </p>
+                                ) : null}
                               </td>
                               <td className="px-4 py-3">
                                 <div className="flex items-center gap-2">
