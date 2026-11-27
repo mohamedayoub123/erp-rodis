@@ -188,10 +188,11 @@ export default async function NouvelleFicheConditionnementPage({
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Nom tireur
-                    <input
-                      type="text"
+                    <ChoixNomField
                       name="tireur"
+                      noms={nomsConditionnement.tireur}
                       required
+                      lienGerer={lienGererNoms}
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>

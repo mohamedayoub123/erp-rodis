@@ -1,23 +1,25 @@
 import { supabaseServer } from "@/lib/supabase-server";
 
-// Listes des noms "Chef de zone" / "Chef de ligne" / "Ravitailleur" du Conditionnement (table conditionnement_noms, voir
-// scripts/sql/create_conditionnement_noms.sql). Quand une liste contient au moins un nom, la saisie de ce champ se limite aux noms
+// Listes des noms "Chef de zone" / "Chef de ligne" / "Ravitailleur" / "Tireur" du Conditionnement (table conditionnement_noms, voir
+// scripts/sql/create_conditionnement_noms.sql et add_tireur_conditionnement_noms.sql). Quand une liste contient au moins un nom, la saisie de ce champ se limite aux noms
 // de la liste (Entrer, Entrer par ligne, nouvelle fiche +) ; tant qu'elle est vide - ou que la table n'existe pas encore - la saisie
 // reste libre, pour ne jamais bloquer le Conditionnement.
 
-export const TYPES_NOM_CONDITIONNEMENT = ["chef_zone", "chef_ligne", "ravitailleur"] as const;
+export const TYPES_NOM_CONDITIONNEMENT = ["chef_zone", "chef_ligne", "ravitailleur", "tireur"] as const;
 export type TypeNomConditionnement = (typeof TYPES_NOM_CONDITIONNEMENT)[number];
 
 export const LIBELLE_TYPE_NOM: Record<TypeNomConditionnement, string> = {
   chef_zone: "Chef de zone",
   chef_ligne: "Chef de ligne",
   ravitailleur: "Ravitailleur",
+  tireur: "Tireur",
 };
 
 export type NomsConditionnement = {
   chef_zone: string[];
   chef_ligne: string[];
   ravitailleur: string[];
+  tireur: string[];
   // false : la table n'existe pas encore (SQL pas lance) - les listes sont alors vides et la saisie libre
   tableDisponible: boolean;
 };
@@ -37,16 +39,14 @@ export async function lireNomsConditionnement(): Promise<NomsConditionnement> {
     .order("nom", { ascending: true })
     .limit(2000);
 
-  if (error) return { chef_zone: [], chef_ligne: [], ravitailleur: [], tableDisponible: false };
+  if (error) return { chef_zone: [], chef_ligne: [], ravitailleur: [], tireur: [], tableDisponible: false };
 
-  const resultat: NomsConditionnement = { chef_zone: [], chef_ligne: [], ravitailleur: [], tableDisponible: true };
+  const resultat: NomsConditionnement = { chef_zone: [], chef_ligne: [], ravitailleur: [], tireur: [], tableDisponible: true };
   for (const ligne of (data ?? []) as { type: string; nom: string }[]) {
     if ((TYPES_NOM_CONDITIONNEMENT as readonly string[]).includes(ligne.type)) resultat[ligne.type as TypeNomConditionnement].push(ligne.nom);
   }
   const trier = (noms: string[]) => noms.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
-  trier(resultat.chef_zone);
-  trier(resultat.chef_ligne);
-  trier(resultat.ravitailleur);
+  for (const type of TYPES_NOM_CONDITIONNEMENT) trier(resultat[type]);
   return resultat;
 }
 
@@ -54,9 +54,10 @@ const CHAMPS_CONTROLES: { champ: string; type: TypeNomConditionnement; libelle: 
   { champ: "chef_zone", type: "chef_zone", libelle: "chef de zone" },
   { champ: "chef_ligne", type: "chef_ligne", libelle: "chef de ligne" },
   { champ: "ravitailleur", type: "ravitailleur", libelle: "ravitailleur" },
+  { champ: "tireur", type: "tireur", libelle: "tireur" },
 ];
 
-// Controle serveur des champs "chef de zone" / "chef de ligne" / "ravitailleur" d'un formulaire Conditionnement : quand la liste correspondante n'est pas
+// Controle serveur des champs "chef de zone" / "chef de ligne" / "ravitailleur" / "tireur" d'un formulaire Conditionnement : quand la liste correspondante n'est pas
 // vide, le nom doit en faire partie (majuscules/minuscules ignorees) et est remplace par son ecriture exacte de la liste.
 // Leve une Error au message clair sinon.
 export async function verifierNomsConditionnement(formData: FormData): Promise<void> {
