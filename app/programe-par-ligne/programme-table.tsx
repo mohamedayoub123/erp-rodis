@@ -12,6 +12,7 @@ import {
   type LigneBrouillon,
 } from "./brouillon-programme";
 import type { MachineCapacite } from "@/lib/machine-capacite";
+import { typeAccepte } from "@/lib/machine-type-produit";
 import {
   TOLERANCE_CARTON,
   capaciteBatch,
@@ -325,7 +326,7 @@ function MachineFabricationSelect({
   // les machines compatibles apparaissent (jamais juste desactivees) -
   // demande explicite ("il faut m'interdire de produire autre chose").
   const options = typeArticle
-    ? fabricationMachines.filter((m) => m.typeProduit.includes(typeArticle))
+    ? fabricationMachines.filter((m) => typeAccepte(m.typeProduit, typeArticle))
     : fabricationMachines;
 
   return (
@@ -506,7 +507,7 @@ function LigneRowCells({
   // filtre la liste elle-meme (jamais juste desactivee/avertie).
   const compatibleArticles =
     machineTypeProduit.length > 0
-      ? articles.filter((article) => machineTypeProduit.includes(article.type))
+      ? articles.filter((article) => typeAccepte(machineTypeProduit, article.type))
       : articles;
 
   return (

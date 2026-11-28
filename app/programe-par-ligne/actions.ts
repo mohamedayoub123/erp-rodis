@@ -10,6 +10,7 @@ import { computeQtCarton, rangerReliquatsEnLots } from "@/lib/dispatcher-shared"
 import { fetchConditionnementZoneChaineOptions } from "@/lib/machines-conditionnement";
 import { limitesDuLot, limitesMachineFabrication, type LimitesKg, type MachineCapacite } from "@/lib/machine-capacite";
 import { fetchCapacitesMachines } from "@/lib/machine-capacite-server";
+import { typeAccepte } from "@/lib/machine-type-produit";
 import { logAudit } from "@/lib/audit-log";
 import { supprimerToutesTracesProductionPourLigne } from "@/app/production/suivi-production/actions";
 
@@ -1239,7 +1240,7 @@ async function validateMachineTypeCompatibility(filledRows: PendingProgrammeRow[
     if (row.machine_id) {
       const machine = machineById.get(row.machine_id);
       const typeProduit = machine?.type_produit ?? [];
-      if (typeProduit.length > 0 && !typeProduit.includes(row.type_article)) {
+      if (typeProduit.length > 0 && !typeAccepte(typeProduit, row.type_article)) {
         return `"${row.produit || "Cet article"}" (${row.type_article}) n'est pas compatible avec la machine Conditionnement "${machine?.nom ?? row.chaine}".`;
       }
     }
@@ -1247,7 +1248,7 @@ async function validateMachineTypeCompatibility(filledRows: PendingProgrammeRow[
     if (row.machine_fabrication_id) {
       const machine = machineById.get(row.machine_fabrication_id);
       const typeProduit = machine?.type_produit ?? [];
-      if (typeProduit.length > 0 && !typeProduit.includes(row.type_article)) {
+      if (typeProduit.length > 0 && !typeAccepte(typeProduit, row.type_article)) {
         return `"${row.produit || "Cet article"}" (${row.type_article}) n'est pas compatible avec la machine Fabrication "${machine?.nom ?? ""}".`;
       }
     }
