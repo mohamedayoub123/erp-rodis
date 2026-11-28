@@ -15,12 +15,15 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { deleteMachineProduitAction, updateMachinesIdentiquesAction } from "../actions";
 import { AddProduitForm } from "./add-produit-form";
+import { MachineMinMaxForm } from "../min-max-form";
 
 type MachineRow = {
   id: number;
   nom: string;
   zone: string | null;
   type: string | null;
+  capacite_min: number | null;
+  capacite_max: number | null;
 };
 
 type MachineProduitRow = {
@@ -56,8 +59,8 @@ async function fetchAllArticleOptions(): Promise<{ id: number; label: string }[]
   return rows;
 }
 
-function formatNombre(value: number | null) {
-  if (value === null) return "-";
+function formatNombre(value: number | null | undefined) {
+  if (value === null || value === undefined) return "-";
   return value.toLocaleString("fr-FR");
 }
 
@@ -78,7 +81,11 @@ export default async function MachineDetailPage({ params }: { params: Promise<{ 
   const identiquesDisponible = await machinesIdentiquesDisponible();
 
   const [{ data: machineData }, { data: produitsData }, articles, { data: toutesData }] = await Promise.all([
-    supabaseServer.from("machines").select("id, nom, zone, type").eq("id", machineId).maybeSingle(),
+    supabaseServer
+      .from("machines")
+      .select("id, nom, zone, type, capacite_min, capacite_max")
+      .eq("id", machineId)
+      .maybeSingle(),
     supabaseServer
       .from("machine_produits")
       .select("id, article_id, temps_minutes, capacite, capacite_min, capacite_max")
@@ -153,6 +160,30 @@ export default async function MachineDetailPage({ params }: { params: Promise<{ 
           </div>
         </section>
 
+        {isFabrication ? (
+          <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <p className="text-sm font-semibold text-sky-700">Min / Max d&apos;un batch (kg)</p>
+            <p className="mt-1 text-sm text-slate-600">
+              Valables pour tous les produits de {machine.nom} : Programme par ligne les prend pour les batchs, les alertes et le
+              decoupage des codes au Dispatch. Laisse les 2 cases vides pour garder le Min / Max ecrit produit par produit plus bas.
+            </p>
+            <div className="mt-3">
+              {canEdit ? (
+                <MachineMinMaxForm
+                  machineId={machine.id}
+                  machineNom={machine.nom}
+                  min={machine.capacite_min}
+                  max={machine.capacite_max}
+                />
+              ) : (
+                <p className="text-sm text-slate-800">
+                  Min : {formatNombre(machine.capacite_min)} kg - Max : {formatNombre(machine.capacite_max)} kg
+                </p>
+              )}
+            </div>
+          </section>
+        ) : null}
+
         {canEdit && identiquesDisponible ? (
           <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <p className="px-5 pt-4 text-sm font-semibold text-sky-700">Machines identiques</p>
@@ -160,6 +191,7 @@ export default async function MachineDetailPage({ params }: { params: Promise<{ 
               Coche les machines identiques a {machine.nom} : les produits (quantites min/max, temps, capacite) de ces machines sont mis en
               commun, puis tout produit ajoute ou retire sur l&apos;une est ajoute ou retire sur les autres. Si un produit existe deja avec
               d&apos;autres valeurs, il prend les valeurs de {machine.nom}.
+              {isFabrication ? " Le Min / Max d'un batch (kg) est aussi partage." : null}
             </p>
             <form action={updateMachinesIdentiquesAction} className="grid gap-4 p-5">
               <input type="hidden" name="machine_id" value={machine.id} />
@@ -224,8 +256,8 @@ export default async function MachineDetailPage({ params }: { params: Promise<{ 
                     <th className="px-6 py-4 font-semibold">Produit</th>
                     {isFabrication ? (
                       <>
-                        <th className="px-6 py-4 font-semibold">Min (quantite)</th>
-                        <th className="px-6 py-4 font-semibold">Max (quantite)</th>
+                        <th className="px-6 py-4 font-semibold">Min (kg)</th>
+                        <th className="px-6 py-4 font-semibold">Max (kg)</th>
                         <th className="px-6 py-4 font-semibold">Temps (minutes)</th>
                       </>
                     ) : (

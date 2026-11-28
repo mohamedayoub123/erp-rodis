@@ -1,7 +1,12 @@
-import { HEURES_PAR_JOUR, findCapaciteFabrication, type MachineCapacite } from "@/lib/machine-capacite";
+import {
+  HEURES_PAR_JOUR,
+  findCapaciteProduitFabrication,
+  limitesMachineFabrication,
+  type MachineCapacite,
+} from "@/lib/machine-capacite";
 
-// Programme par ligne : quantites calculees a partir de la capacite des machines (Equipements > machine >
-// produits). Fonctions pures (aucun acces base), partagees par la grille (programme-table.tsx).
+// Programme par ligne : quantites calculees a partir de la capacite des machines (voir lib/machine-capacite.ts).
+// Fonctions pures (aucun acces base), partagees par la grille (programme-table.tsx).
 //
 // Quand la chaine de conditionnement a la capacite du produit choisi (ex : 60 pieces/min), Qt carton et
 // Vrac a fabriquer se remplissent tout seuls avec ce que la chaine peut produire sur une journee :
@@ -56,7 +61,9 @@ export function computeMaxPossible(
 
   const capaCondi =
     machineConditionnementId != null ? capacites.get(`${machineConditionnementId}::${article.id}`) : undefined;
-  const capaFab = findCapaciteFabrication(capacites, machineFabricationId, article.vracArticleId, article.id);
+  // Colonne inchangee : seules les capacites saisies produit par produit comptent ici. Les Min / Max ecrits sur la
+  // machine sont la taille d'un batch (limitesBatch), pas une quantite par heure.
+  const capaFab = findCapaciteProduitFabrication(capacites, machineFabricationId, article.vracArticleId, article.id);
 
   let maxKgCondi: number | null = null;
   if (capaCondi?.capacite && article.contenance && article.contenance > 0) {
@@ -102,30 +109,24 @@ export function computeMaxPossible(
 
 const arrondir6 = (valeur: number) => Math.round(valeur * 1e6) / 1e6;
 
-// Taille maximum d'un batch sur la machine de Fabrication choisie (Equipements > machine Fabrication >
-// produit : champ Max, une QUANTITE de vrac en kg), null si pas de machine ou pas de Max renseigne.
-export function capaciteBatch(
-  article: ArticleQuantites | null,
-  machineFabricationId: number | null,
-  capacites: Map<string, MachineCapacite>
-): number | null {
-  if (!article || machineFabricationId == null) return null;
-  const capa = findCapaciteFabrication(capacites, machineFabricationId, article.vracArticleId, article.id);
-  return capa?.capaciteMax && capa.capaciteMax > 0 ? capa.capaciteMax : null;
-}
-
-// Min et Max (en kg de vrac) d'un batch sur la machine de Fabrication choisie, null si la machine n'a aucun des
-// deux pour ce produit.
+// Min et Max (en kg de vrac) d'un batch sur la machine de Fabrication choisie : ceux ecrits sur la machine, sinon
+// ceux du produit dans cette machine (voir findCapaciteFabrication). null si aucun des deux n'est renseigne.
 export function limitesBatch(
   article: ArticleQuantites | null,
   machineFabricationId: number | null,
   capacites: Map<string, MachineCapacite>
 ): { min: number | null; max: number | null } | null {
-  if (!article || machineFabricationId == null) return null;
-  const capa = findCapaciteFabrication(capacites, machineFabricationId, article.vracArticleId, article.id);
-  const min = capa?.capaciteMin && capa.capaciteMin > 0 ? capa.capaciteMin : null;
-  const max = capa?.capaciteMax && capa.capaciteMax > 0 ? capa.capaciteMax : null;
-  return min === null && max === null ? null : { min, max };
+  if (!article) return null;
+  return limitesMachineFabrication(capacites, machineFabricationId, article.vracArticleId, article.id);
+}
+
+// Taille maximum d'un batch (le Max ci-dessus), null si pas de machine ou pas de Max renseigne.
+export function capaciteBatch(
+  article: ArticleQuantites | null,
+  machineFabricationId: number | null,
+  capacites: Map<string, MachineCapacite>
+): number | null {
+  return limitesBatch(article, machineFabricationId, capacites)?.max ?? null;
 }
 
 // Message d'alerte quand la machine de Fabrication ne peut pas fabriquer cette quantite de vrac, sinon null :

@@ -90,13 +90,13 @@ export function AddProduitForm({
           <input
             type="number"
             name="capacite_min"
-            placeholder="Min (quantite)"
+            placeholder="Min (kg)"
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
           />
           <input
             type="number"
             name="capacite_max"
-            placeholder="Max (quantite)"
+            placeholder="Max (kg)"
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
           />
           <input

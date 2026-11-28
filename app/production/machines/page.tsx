@@ -9,6 +9,7 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { deleteMachineAction } from "./actions";
 import { AddMachineForm } from "./add-machine-form";
 import { MachineTypeProduitSelect } from "./type-produit-select";
+import { MachineMinMaxForm } from "./min-max-form";
 import {
   MachineConsoCell,
   MachineConsoGasoilCell,
@@ -29,6 +30,8 @@ type MachineRow = {
   consommation_gaz_litres_heure: number | null;
   consommation_gasoil_litres_heure: number | null;
   energie_machine_ids: number[] | null;
+  capacite_min: number | null;
+  capacite_max: number | null;
 };
 
 // Triee par zone d'abord (regroupe visuellement les machines d'une meme
@@ -37,7 +40,7 @@ async function fetchAllMachines(): Promise<{ rows: MachineRow[]; error: { messag
   const { data, error } = await supabaseServer
     .from("machines")
     .select(
-      "id, nom, zone, type, type_produit, consommation_electrique_kw, consommation_gaz_litres_heure, consommation_gasoil_litres_heure, energie_machine_ids"
+      "id, nom, zone, type, type_produit, consommation_electrique_kw, consommation_gaz_litres_heure, consommation_gasoil_litres_heure, energie_machine_ids, capacite_min, capacite_max"
     )
     .order("zone", { ascending: true, nullsFirst: false })
     .order("nom", { ascending: true });
@@ -127,8 +130,9 @@ export default async function MachinesPage({ searchParams }: { searchParams: Sea
               </p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Equipements</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Liste des equipements de production. Ouvre un equipement pour lui associer ses
-                produits, avec la capacite, le min/max et le temps par produit.
+                Liste des equipements de production. Pour une machine de Fabrication, ecris ici le Min et le
+                Max d&apos;un batch en kg. Ouvre un equipement pour lui associer ses produits, avec la
+                capacite, le min/max et le temps par produit.
               </p>
             </div>
 
@@ -222,6 +226,7 @@ export default async function MachinesPage({ searchParams }: { searchParams: Sea
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Zone</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Type</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Type de produit</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Min / Max batch (kg)</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Conso. electrique (kW)</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Conso. gaz (L/h)</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Conso. gasoil (L/h)</th>
@@ -246,6 +251,20 @@ export default async function MachinesPage({ searchParams }: { searchParams: Sea
                           (machine.type_produit && machine.type_produit.length > 0
                             ? machine.type_produit.join(", ")
                             : "-")
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-6 py-4 text-slate-600">
+                        {machine.type !== "Fabrication" ? (
+                          <span className="text-slate-400">-</span>
+                        ) : canEdit ? (
+                          <MachineMinMaxForm
+                            machineId={machine.id}
+                            machineNom={machine.nom}
+                            min={machine.capacite_min}
+                            max={machine.capacite_max}
+                          />
+                        ) : (
+                          `${machine.capacite_min ?? "-"} / ${machine.capacite_max ?? "-"}`
                         )}
                       </td>
                       <td className="px-6 py-4 text-slate-600">

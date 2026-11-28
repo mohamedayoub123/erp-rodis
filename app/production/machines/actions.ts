@@ -13,6 +13,7 @@ import {
   type MachineGroupe,
   type ProduitMachine,
 } from "@/lib/machines-identiques";
+import { lireLimitesKg, type EtatMinMax } from "@/lib/machine-capacite";
 
 function toNumberOrNull(value: FormDataEntryValue | null) {
   const trimmed = String(value ?? "").trim();
@@ -133,6 +134,74 @@ export async function deleteMachineAction(formData: FormData) {
   }
 
   revalidatePath("/production/machines");
+}
+
+// Min / Max (kg d'un batch) ecrits sur une machine de Fabrication : valables pour tous ses produits (voir
+// lib/machine-capacite.ts), recopies sur ses machines identiques. Les erreurs reviennent comme message : une
+// exception serait remplacee par une page d'erreur generique en production.
+export async function updateMachineMinMaxAction(_etat: EtatMinMax, formData: FormData): Promise<EtatMinMax> {
+  try {
+    const currentUser = await getCurrentStockUser();
+
+    if (!(await canWritePageUser(currentUser, "machines"))) {
+      return { ok: false, message: "Cet utilisateur ne peut pas modifier les machines." };
+    }
+
+    const id = Number(String(formData.get("id") || "0"));
+    if (!id) return { ok: false, message: "Machine invalide." };
+
+    const saisie = lireLimitesKg(formData.get("capacite_min"), formData.get("capacite_max"));
+    if (!saisie.ok) return saisie;
+
+    const identiques = await idsMachinesIdentiques(id);
+    const ids = [id, ...identiques];
+
+    const { data, error: lectureError } = await supabaseServer
+      .from("machines")
+      .select("id, nom, type, capacite_min, capacite_max")
+      .in("id", ids);
+    if (lectureError) return { ok: false, message: lectureError.message };
+
+    const machines = (data ?? []) as {
+      id: number;
+      nom: string;
+      type: string | null;
+      capacite_min: number | null;
+      capacite_max: number | null;
+    }[];
+    const machine = machines.find((m) => m.id === id);
+    if (!machine) return { ok: false, message: "Machine introuvable." };
+    if (machine.type !== "Fabrication") {
+      return { ok: false, message: "Le Min / Max en kg ne concerne que les machines de Fabrication." };
+    }
+
+    const { error } = await supabaseServer
+      .from("machines")
+      .update({ capacite_min: saisie.min, capacite_max: saisie.max })
+      .in("id", ids);
+    if (error) return { ok: false, message: error.message };
+
+    const autres = machines.filter((m) => m.id !== id).map((m) => m.nom);
+    await logAudit({
+      utilisateur: currentUser,
+      module: "Machines",
+      action: "modification",
+      cible: machine.nom,
+      resume:
+        `Min / Max d'un batch de ${machine.nom} : ${saisie.min ?? "-"} / ${saisie.max ?? "-"} kg` +
+        (autres.length > 0 ? ` (aussi sur les machines identiques : ${autres.join(", ")})` : ""),
+      avant: { machines: machines.map((m) => ({ id: m.id, capacite_min: m.capacite_min, capacite_max: m.capacite_max })) },
+      apres: { machines: ids, capacite_min: saisie.min, capacite_max: saisie.max },
+    });
+
+    revalidatePath("/production/machines");
+    for (const machineId of ids) revalidatePath(`/production/machines/${machineId}`);
+    revalidatePath("/programe-par-ligne");
+
+    return { ok: true, message: autres.length > 0 ? `Enregistre, aussi sur ${autres.join(", ")}.` : "Enregistre." };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Erreur pendant l'enregistrement." };
+  }
 }
 
 export async function addMachineProduitAction(formData: FormData) {
@@ -301,7 +370,36 @@ export async function updateMachinesIdentiquesAction(formData: FormData) {
     produitsCopies = aEcrire.length;
   }
 
-  if (changements.length > 0 || produitsCopies > 0) {
+  // Le Min / Max (kg) ecrit sur cette machine arrive aussi sur le groupe ; si elle n'en a pas, les autres gardent les leurs
+  let minMaxCopies = 0;
+  if (groupe.length >= 2) {
+    const { data: valeursData, error: valeursError } = await supabaseServer
+      .from("machines")
+      .select("id, capacite_min, capacite_max")
+      .in("id", groupe);
+    if (valeursError) {
+      throw new Error(valeursError.message);
+    }
+    const valeurs = (valeursData ?? []) as { id: number; capacite_min: number | null; capacite_max: number | null }[];
+    const source = valeurs.find((m) => m.id === machineId);
+    if (source && (source.capacite_min != null || source.capacite_max != null)) {
+      const aChanger = valeurs
+        .filter((m) => m.capacite_min !== source.capacite_min || m.capacite_max !== source.capacite_max)
+        .map((m) => m.id);
+      if (aChanger.length > 0) {
+        const { error } = await supabaseServer
+          .from("machines")
+          .update({ capacite_min: source.capacite_min, capacite_max: source.capacite_max })
+          .in("id", aChanger);
+        if (error) {
+          throw new Error(error.message);
+        }
+      }
+      minMaxCopies = aChanger.length;
+    }
+  }
+
+  if (changements.length > 0 || produitsCopies > 0 || minMaxCopies > 0) {
     const nom = (id: number) => machines.find((m) => m.id === id)?.nom ?? `#${id}`;
     const autres = groupe.filter((id) => id !== machineId).map(nom);
     await logAudit({
@@ -312,7 +410,8 @@ export async function updateMachinesIdentiquesAction(formData: FormData) {
       resume:
         `Machines identiques de ${nom(machineId)} : ${autres.length > 0 ? autres.join(", ") : "aucune"}` +
         (retires.length > 0 ? ` (retirees : ${retires.map(nom).join(", ")})` : "") +
-        (produitsCopies > 0 ? ` - ${produitsCopies} produit(s) mis en commun` : ""),
+        (produitsCopies > 0 ? ` - ${produitsCopies} produit(s) mis en commun` : "") +
+        (minMaxCopies > 0 ? ` - Min / Max (kg) recopie sur ${minMaxCopies} machine(s)` : ""),
       avant: { groupes: changements.map((c) => ({ id: c.id, groupe_avant: machines.find((m) => m.id === c.id)?.groupe_identique_id ?? null })) },
       apres: { groupes: changements },
     });

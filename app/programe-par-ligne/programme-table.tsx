@@ -82,8 +82,8 @@ export type ArticleOption = {
   maxVracAuto: number | null;
   vracMaxManuel: number | null;
   // Article vrac (matiere en cuve) derriere ce produit fini - la capacite
-  // Fabrication (machine_produits) est enregistree sur CET article-la, pas
-  // sur l'article fini (voir MachineCapacite plus bas).
+  // Fabrication saisie produit par produit (machine_produits) est enregistree
+  // sur CET article-la, pas sur l'article fini (voir lib/machine-capacite.ts).
   vracArticleId: number | null;
 };
 
@@ -770,10 +770,9 @@ export function ProgrammeLigneTable({
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
-  // Articles non dispatches faute de capacite Fabrication configuree sur
-  // leur machine (voir actions.ts, assignDispatcherCodesAndInsert) - le
-  // Dispatch des autres lignes reussit quand meme, seuls ceux-la sont
-  // signales plutot que de tout bloquer.
+  // Avertissements du Dispatch (voir actions.ts, assignDispatcherCodesAndInsert) :
+  // machines Fabrication sans Min / Max, codes deja presents ailleurs - ils ne
+  // bloquent rien.
   const [dispatchWarnings, setDispatchWarnings] = useState<string[]>([]);
   // Pas de valeur par defaut (surtout pas la date du jour) - l'utilisateur
   // doit toujours choisir explicitement pour quel jour est ce programme.

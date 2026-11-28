@@ -7,12 +7,12 @@ import {
   type ArticleOption,
   type FabricationMachineOption,
   type LigneRow,
-  type MachineCapacite,
   type PrefillLigne,
 } from "./programme-table";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { fetchMachinesConditionnement } from "@/lib/machines-conditionnement";
+import { fetchCapacitesMachines } from "@/lib/machine-capacite-server";
 
 // Remplace l'ancienne liste fixe (lib/zone-chaine-list.ts, copiee d'un
 // Excel) par les vraies machines Conditionnement - chaque ligne de la
@@ -122,36 +122,6 @@ async function fetchAllArticleOptions(): Promise<ArticleOption[]> {
   return rows;
 }
 
-// Capacite machine x article (voir app/production/machines - "Ajouter un
-// produit" sur une machine) - Conditionnement/Emballage : capacite = pieces/
-// minute ; Fabrication : capacite_min/capacite_max = kg/heure. Sert a
-// calculer le "max possible" par ligne (demande explicite : prendre la
-// machine la plus limitante entre Conditionnement et Fabrication, jamais
-// juste Conditionnement comme le fait l'ancienne page "Programme").
-async function fetchMachineCapacites(): Promise<MachineCapacite[]> {
-  const { data, error } = await supabaseServer
-    .from("machine_produits")
-    .select("machine_id, article_id, capacite, capacite_min, capacite_max");
-
-  if (error) return [];
-
-  return (
-    (data ?? []) as {
-      machine_id: number;
-      article_id: number;
-      capacite: number | null;
-      capacite_min: number | null;
-      capacite_max: number | null;
-    }[]
-  ).map((row) => ({
-    machineId: row.machine_id,
-    articleId: row.article_id,
-    capacite: row.capacite,
-    capaciteMin: row.capacite_min,
-    capaciteMax: row.capacite_max,
-  }));
-}
-
 // Rempli automatiquement la grille a partir d'un programme de l'historique
 // (bouton "Charger" sur Historique programme) - evite de retaper a la main
 // pour repartir d'un ancien programme comme base, tout en gardant la
@@ -189,7 +159,9 @@ export default async function ProgrameParLignePage({
       fetchConditionnementZoneGroups(),
       fetchFabricationMachines(),
       canChangerMachineConditionnementUser(currentUser),
-      fetchMachineCapacites(),
+      // Capacites des machines (voir lib/machine-capacite.ts) : remplissage de la grille, alertes et "Max possible".
+      // Si elles ne se lisent pas, la grille reste utilisable sans calcul automatique.
+      fetchCapacitesMachines().catch(() => []),
     ]);
 
   return (

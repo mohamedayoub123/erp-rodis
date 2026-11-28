@@ -8,7 +8,8 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { computeArticleFamilyKey, extractTrailingNumber, incrementCode } from "@/lib/article-code-family";
 import { computeQtCarton, rangerReliquatsEnLots } from "@/lib/dispatcher-shared";
 import { fetchConditionnementZoneChaineOptions } from "@/lib/machines-conditionnement";
-import { HEURES_PAR_JOUR, findCapaciteFabrication, type MachineCapacite } from "@/lib/machine-capacite";
+import { limitesDuLot, limitesMachineFabrication, type LimitesKg, type MachineCapacite } from "@/lib/machine-capacite";
+import { fetchCapacitesMachines } from "@/lib/machine-capacite-server";
 import { logAudit } from "@/lib/audit-log";
 import { supprimerToutesTracesProductionPourLigne } from "@/app/production/suivi-production/actions";
 
@@ -16,9 +17,9 @@ type PendingProgrammeRow = {
   zone: string;
   chaine: string;
   // Machine Conditionnement/Fabrication reellement choisies pour cette
-  // ligne (voir programme-table.tsx) - optionnelles car absentes du chemin
-  // Dispatch differe depuis l'Historique (dispatchExistingProgrammeLigneGroupAction),
-  // qui reconstruit ce type sans ces 2 champs (hors de ce lot).
+  // ligne (voir programme-table.tsx). Le Dispatch differe depuis
+  // l'Historique (dispatchExistingProgrammeLigneGroupAction) ne connait que la
+  // machine Fabrication, enregistree sur la ligne.
   machine_id?: number | null;
   machine_fabrication_id?: number | null;
   article_id: number | null;
@@ -112,39 +113,17 @@ async function fetchArticleInfoMap(articleIds: number[]): Promise<Map<number, Ar
   return map;
 }
 
-// Capacite machine x article (voir lib/machine-capacite.ts) - table tres
-// eparse (quelques lignes au total), on la recupere donc en entier plutot
-// que de filtrer par machine, comme fait deja "Max possible" (page.tsx).
+// Capacites des machines (voir lib/machine-capacite.ts), les memes que la
+// grille "Programme par ligne" : Min / Max ecrits sur les machines et
+// capacites saisies produit par produit.
 async function fetchMachineCapaciteMap(): Promise<Map<string, MachineCapacite>> {
-  const { data, error } = await supabaseServer
-    .from("machine_produits")
-    .select("machine_id, article_id, capacite, capacite_min, capacite_max");
-
-  const map = new Map<string, MachineCapacite>();
-  if (error) return map;
-
-  for (const row of (data ?? []) as {
-    machine_id: number;
-    article_id: number;
-    capacite: number | null;
-    capacite_min: number | null;
-    capacite_max: number | null;
-  }[]) {
-    map.set(`${row.machine_id}::${row.article_id}`, {
-      machineId: row.machine_id,
-      articleId: row.article_id,
-      capacite: row.capacite,
-      capaciteMin: row.capacite_min,
-      capaciteMax: row.capacite_max,
-    });
-  }
-
-  return map;
+  const capacites = await fetchCapacitesMachines();
+  return new Map(capacites.map((capacite) => [`${capacite.machineId}::${capacite.articleId}`, capacite]));
 }
 
 // Nom des machines Fabrication choisies sur les lignes - sert uniquement au
-// message d'avertissement quand un article n'a pas de capacite configuree
-// sur sa machine (voir buildDispatcherDraftRows).
+// message d'avertissement quand une machine n'a pas de Min / Max (voir
+// buildDispatcherDraftRows).
 async function fetchMachineNameMap(machineIds: number[]): Promise<Map<number, string>> {
   const map = new Map<number, string>();
   if (machineIds.length === 0) return map;
@@ -157,14 +136,17 @@ async function fetchMachineNameMap(machineIds: number[]): Promise<Map<number, st
   return map;
 }
 
-// Decoupe le vrac en lots dispatcher (voir splitVracIntoBatches) selon
-// max_vrac_auto (Plateforme A) ou vrac_max_manuel (Plateforme M) de
-// l'article - mais sur le TOTAL COMBINE de toutes les chaines qui font le
-// meme article (+ plateforme) dans ce Save, pas ligne par ligne. Sans ca,
-// 2 chaines a 4500 chacune (max 3000) donnaient 4 codes (3000+1500 sur
-// chacune) au lieu des 3 lots reels de 3000 - le decoupage partage
-// reproduit fidelement les lots physiques, quitte a ce qu'un lot soit
-// materiellement reparti sur 2 chaines et partage donc un seul code.
+// Decoupe le vrac en lots dispatcher (voir splitVracIntoBatches) selon le
+// Min / Max (kg d'un batch) de la machine Fabrication de la ligne ; a defaut
+// (ligne sans machine, ou machine sans valeur) selon max_vrac_auto
+// (Plateforme A) ou vrac_max_manuel (Plateforme M) et min_vrac de l'article.
+// Le decoupage porte sur le TOTAL COMBINE de toutes les chaines qui font le
+// meme article (+ plateforme, + memes Min / Max machine) dans ce Save, pas
+// ligne par ligne. Sans ca, 2 chaines a 4500 chacune (max 3000) donnaient 4
+// codes (3000+1500 sur chacune) au lieu des 3 lots reels de 3000 - le
+// decoupage partage reproduit fidelement les lots physiques, quitte a ce
+// qu'un lot soit materiellement reparti sur 2 chaines et partage donc un
+// seul code.
 function buildDispatcherDraftRows(
   filledRows: PendingProgrammeRow[],
   articleInfoById: Map<number, ArticleFullInfo>,
@@ -177,11 +159,12 @@ function buildDispatcherDraftRows(
   const groups = new Map<string, { row: PendingProgrammeRow; sourceIndex: number }[]>();
   const groupOrder: string[] = [];
 
-  // Capacite (en kg/jour, voir HEURES_PAR_JOUR) de la machine Fabrication
-  // choisie sur chaque ligne, quand elle est connue - alimente le max/min de
-  // son groupe plus bas (meme logique "prend la machine la plus limitante"
-  // que "Max possible" sur la grille).
-  const machineBoundsBySourceIndex = new Map<number, { maxKg: number | null; minKg: number | null }>();
+  // Min / Max (kg d'un batch) de la machine Fabrication choisie sur chaque
+  // ligne, quand elle en a : ils decident du decoupage de son groupe plus bas,
+  // a la place de ceux de l'article.
+  const limitesMachineBySourceIndex = new Map<number, LimitesKg>();
+  // Machines choisies qui n'ont ni Min ni Max : signalees en une seule phrase
+  const machinesSansLimites = new Set<string>();
 
   // Regroupe par FAMILLE (gamme+forme, ex: "DERMATONE::GEL DOUCHE") et non
   // par article_id exact : sans ca, 2 contenances differentes (300ml/500ml)
@@ -190,47 +173,45 @@ function buildDispatcherDraftRows(
   // fabriquees a partir du meme vrac et devraient donc se partager le meme
   // max de fabrication.
   //
-  // Une ligne dont la machine Fabrication choisie n'a AUCUNE capacite
-  // configuree pour cet article (ni sur son vrac, ni sur l'article fini -
-  // voir findCapaciteFabrication) est exclue du dispatch : elle n'entre dans
-  // aucun groupe, ne produit donc aucune ligne Dispatcher/code, mais garde
-  // sa ligne "Programme par ligne" (deja enregistree avant cet appel) - un
-  // avertissement nomme l'article et la machine en cause plutot que de
-  // bloquer tout le Dispatch pour les autres lignes (demande explicite).
-  // Une ligne SANS machine Fabrication choisie n'est jamais concernee (la
-  // tres grande majorite des machines n'ont encore aucune capacite
-  // configuree - voir Max possible).
+  // Les Min / Max de la machine font partie de la cle du groupe : un lot se
+  // fabrique dans une machine, 2 lignes sur des machines de capacites
+  // differentes ne partagent donc pas leurs lots (des machines identiques,
+  // memes Min / Max, les partagent comme avant).
   filledRows.forEach((row, sourceIndex) => {
     const info = row.article_id ? articleInfoById.get(row.article_id) : undefined;
+    let cleLimites = "article";
 
     if (row.machine_fabrication_id != null) {
-      const capa = findCapaciteFabrication(
+      const limites = limitesMachineFabrication(
         machineCapacites,
         row.machine_fabrication_id,
         info?.vrac_article_id,
         row.article_id
       );
-      if (!capa) {
-        const machineName = machineNameById.get(row.machine_fabrication_id) ?? `machine #${row.machine_fabrication_id}`;
-        warnings.push(
-          `"${row.produit || "Cet article"}" (${row.zone} ${row.chaine}) : aucune capacite Fabrication configuree pour "${machineName}" - article non dispatche.`
+      if (limites) {
+        limitesMachineBySourceIndex.set(sourceIndex, limites);
+        cleLimites = `${limites.min ?? ""}-${limites.max ?? ""}`;
+      } else {
+        machinesSansLimites.add(
+          machineNameById.get(row.machine_fabrication_id) ?? `machine #${row.machine_fabrication_id}`
         );
-        return;
       }
-      machineBoundsBySourceIndex.set(sourceIndex, {
-        maxKg: capa.capaciteMax != null ? capa.capaciteMax * HEURES_PAR_JOUR : null,
-        minKg: capa.capaciteMin != null ? capa.capaciteMin * HEURES_PAR_JOUR : null,
-      });
     }
 
     const familyKey = computeArticleFamilyKey(row.produit, info?.gamme ?? null);
-    const key = `${familyKey}::${row.plateforme}`;
+    const key = `${familyKey}::${row.plateforme}::${cleLimites}`;
     if (!groups.has(key)) {
       groups.set(key, []);
       groupOrder.push(key);
     }
     groups.get(key)!.push({ row, sourceIndex });
   });
+
+  if (machinesSansLimites.size > 0) {
+    warnings.push(
+      `Machine(s) sans Min / Max (kg) : ${[...machinesSansLimites].join(", ")}. Pour ces lignes, le decoupage a pris le Min / Max de l'article - ecris le Min et le Max de la machine dans Production > Equipements.`
+    );
+  }
 
   function pushIndependentPiece(entry: { row: PendingProgrammeRow; sourceIndex: number }, groupKey: string) {
     const articleId = entry.row.article_id as number;
@@ -255,47 +236,32 @@ function buildDispatcherDraftRows(
     const entries = groups.get(groupKey)!;
     const plateforme = entries[0].row.plateforme;
 
-    // Le max est cense etre le meme pour toute la famille (c'est une
-    // capacite de fabrication du vrac, pas une propriete de l'emballage) -
-    // si la config differe malgre tout entre contenances/variantes, on
-    // prend le premier max exploitable rencontre dans l'ordre des lignes.
-    // Le min (min_vrac, taille minimale viable d'un lot) est cherche de la
-    // meme facon - contrairement au max, il n'est pas separe par
-    // plateforme.
-    let max: number | null | undefined = null;
-    let min: number | null | undefined = null;
-    // Capacite machine Fabrication (kg/jour) des lignes de ce groupe qui en
-    // ont une - meme logique bottleneck que "Max possible" : la plus
-    // limitante des lignes du groupe l'emporte (min des max, max des min).
-    let machineMax: number | null = null;
-    let machineMin: number | null = null;
+    // Valeurs de l'article, pour ce que la machine ne donne pas : le max est
+    // cense etre le meme pour toute la famille (c'est une capacite de
+    // fabrication du vrac, pas une propriete de l'emballage) - si la config
+    // differe malgre tout entre contenances/variantes, on prend le premier max
+    // exploitable rencontre dans l'ordre des lignes. Le min (min_vrac, taille
+    // minimale viable d'un lot) est cherche de la meme facon - contrairement
+    // au max, il n'est pas separe par plateforme.
+    let articleMax: number | null = null;
+    let articleMin: number | null = null;
     for (const entry of entries) {
       const info = entry.row.article_id ? articleInfoById.get(entry.row.article_id) : undefined;
-      if (max === null) {
+      if (articleMax === null) {
         const candidate = plateforme === "A" ? info?.max_vrac_auto : plateforme === "M" ? info?.vrac_max_manuel : null;
-        if (candidate && candidate > 0) max = candidate;
+        if (candidate && candidate > 0) articleMax = candidate;
       }
-      if (min === null && info?.min_vrac && info.min_vrac > 0) {
-        min = info.min_vrac;
-      }
-      const bounds = machineBoundsBySourceIndex.get(entry.sourceIndex);
-      if (bounds?.maxKg != null && (machineMax === null || bounds.maxKg < machineMax)) {
-        machineMax = bounds.maxKg;
-      }
-      if (bounds?.minKg != null && (machineMin === null || bounds.minKg > machineMin)) {
-        machineMin = bounds.minKg;
+      if (articleMin === null && info?.min_vrac && info.min_vrac > 0) {
+        articleMin = info.min_vrac;
       }
     }
 
-    // La machine Fabrication (quand connue) plafonne/plancher le lot en plus
-    // du max/min deja configure sur l'article - le plus restrictif des deux
-    // s'applique, jamais l'un au lieu de l'autre.
-    if (machineMax !== null) {
-      max = max && max > 0 ? Math.min(max, machineMax) : machineMax;
-    }
-    if (machineMin !== null) {
-      min = min && min > 0 ? Math.max(min, machineMin) : machineMin;
-    }
+    // La machine Fabrication (quand elle a des valeurs) decide a la place de
+    // l'article ; toutes les lignes du groupe ont les memes (voir la cle).
+    const { min, max } = limitesDuLot(limitesMachineBySourceIndex.get(entries[0].sourceIndex) ?? null, {
+      min: articleMin,
+      max: articleMax,
+    });
 
     const totalVrac = entries.reduce((sum, entry) => sum + (entry.row.vrac_a_fabriquer ?? 0), 0);
     const hasMax = Boolean(max && max > 0);
@@ -1536,7 +1502,7 @@ export async function dispatchExistingProgrammeLigneGroupAction(
     const { data, error } = await supabaseServer
       .from("programme_lignes")
       .select(
-        "id, zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, date_jour"
+        "id, zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, date_jour, machine_fabrication_id"
       )
       .or(`groupe_id.eq.${groupeId},and(groupe_id.is.null,id.eq.${groupeId})`)
       .order("id", { ascending: true });
@@ -1556,6 +1522,7 @@ export async function dispatchExistingProgrammeLigneGroupAction(
       vrac_a_fabriquer: number | null;
       plateforme: string | null;
       date_jour: string;
+      machine_fabrication_id: number | null;
     }[];
 
     if (lignes.length === 0) {
@@ -1574,6 +1541,8 @@ export async function dispatchExistingProgrammeLigneGroupAction(
       vrac_a_fabriquer: ligne.vrac_a_fabriquer,
       plateforme: ligne.plateforme || "",
       programe: "",
+      // le decoupage en lots suit la machine Fabrication choisie sur la ligne
+      machine_fabrication_id: ligne.machine_fabrication_id,
     }));
 
     if (filledRows.length === 0) {
